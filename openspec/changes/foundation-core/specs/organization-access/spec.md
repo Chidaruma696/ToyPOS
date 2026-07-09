@@ -37,18 +37,45 @@ El sistema SHALL permitir crear y editar roles como conjuntos arbitrarios de per
 - **THEN** los usuarios con rol `etiquetador` obtienen la capacidad de editar precios sin recrear el rol ni reasignarlo
 
 ### Requirement: Alcance de la asignación de rol
-El sistema SHALL asociar a cada asignación de rol un alcance: `global`, `matriz`, o una `sucursal` específica. El alcance SHALL determinar el conjunto de datos sobre los que los permisos del rol son efectivos.
+El sistema SHALL asociar a cada asignación de rol un alcance, que es uno de: `global`, `matriz`, o un **conjunto de una o más sucursales**. El alcance SHALL determinar el conjunto de datos sobre los que los permisos del rol son efectivos.
 
-#### Scenario: Alcance de expendio
-- **WHEN** un usuario tiene el rol `cajero` con alcance `sucursal = Expendio B`
+#### Scenario: Alcance de una sola sucursal
+- **WHEN** un usuario tiene el rol `cajero` con alcance `{ Expendio B }`
 - **THEN** sus permisos son efectivos únicamente sobre datos de Expendio B
 
-### Requirement: Aislamiento de datos por alcance
-El sistema SHALL filtrar toda lectura y escritura por el alcance del usuario, de forma que un usuario con alcance de una sucursal no pueda leer ni modificar datos de otra sucursal. El aislamiento SHALL aplicarse en la capa de acceso a datos (por diseño), no por convención de la interfaz.
+#### Scenario: Alcance de varias sucursales
+- **WHEN** un empleado tiene el rol `cajero` con alcance `{ Expendio A, Expendio B }`
+- **THEN** sus permisos son efectivos sobre Expendio A y Expendio B, y sobre ninguna otra sucursal
 
-#### Scenario: Un expendio no ve datos de otro
-- **WHEN** un usuario con alcance `sucursal = Expendio B` consulta ventas, notas o inventario
+#### Scenario: Alcance global (administración)
+- **WHEN** un usuario tiene un rol con alcance `global`
+- **THEN** sus permisos pueden ser efectivos sobre todas las sucursales
+
+### Requirement: Asignación de empleados a sucursales
+El sistema SHALL exigir que cada empleado esté asignado explícitamente a su(s) sucursal(es) mediante el alcance de sus roles. Un empleado SHALL poder estar asignado a una sola sucursal, a un conjunto de sucursales, o (para administración) a todas mediante alcance `global` o `matriz`. Ningún empleado SHALL tener acceso implícito a una sucursal que no le fue asignada.
+
+#### Scenario: Operador de una sola sucursal no se cruza
+- **WHEN** se asigna a un cajero únicamente el alcance `{ Expendio B }`
+- **THEN** el cajero queda asignado solo a Expendio B y no puede operar sobre ninguna otra sucursal
+
+#### Scenario: Empleado asignado a varias sucursales
+- **WHEN** un empleado trabaja en Expendio A y Expendio B
+- **THEN** se le asigna alcance sobre ambas y opera en las dos sin alcanzar una tercera
+
+### Requirement: Aislamiento de datos por alcance
+El sistema SHALL filtrar toda lectura y escritura por el **alcance efectivo** del usuario (la unión de los alcances de sus asignaciones), de forma que un usuario nunca pueda leer ni modificar datos de una sucursal fuera de su alcance asignado. El aislamiento SHALL aplicarse en la capa de acceso a datos (por diseño), no por convención de la interfaz. Además, dentro de una sucursal asignada, el operador SHALL ver únicamente los datos que sus permisos autorizan, nunca más de lo autorizado.
+
+#### Scenario: Un operador no ve datos fuera de su sucursal asignada
+- **WHEN** un usuario asignado solo a Expendio B consulta ventas, notas o inventario
 - **THEN** el resultado incluye solo datos de Expendio B y nunca de otra sucursal
+
+#### Scenario: Empleado multi-sucursal ve solo sus sucursales
+- **WHEN** un usuario asignado a `{ Expendio A, Expendio B }` consulta datos
+- **THEN** el resultado abarca solo A y B, jamás una sucursal no asignada
+
+#### Scenario: Dentro de la sucursal, solo lo autorizado
+- **WHEN** un usuario tiene acceso a Expendio B pero sin permiso para ver cortes de caja
+- **THEN** puede ver lo que sus permisos autorizan pero no los cortes de caja
 
 #### Scenario: Alcance global ve todas las sucursales
 - **WHEN** un usuario con un rol de alcance `global` consulta ventas

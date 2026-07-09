@@ -38,8 +38,9 @@ La autorización se evalúa contra **permisos atómicos**; los roles son solo bu
 - *Alternativa descartada:* enum de roles cerrado (`Admin | Cajero | Etiquetador`) → cada cambio organizativo exigiría recompilar.
 
 ### D3 — El alcance es el mecanismo de aislamiento (defensa en la capa de datos)
-Cada asignación de rol lleva un alcance (`global` | `matriz` | `sucursal`). Toda consulta se filtra por el alcance del actor **en la capa de acceso a datos**, no en la UI. Se pasará un "contexto de acceso" (actor + permisos + alcance) a cada operación de repositorio, que rechaza o filtra por defecto.
+Cada asignación de rol lleva un alcance (`global` | `matriz` | **conjunto de sucursales**). El **alcance efectivo** del usuario es la unión de los alcances de sus asignaciones: un empleado puede estar asignado a una sola sucursal, a varias, o (admin) a todas. Toda consulta se filtra por ese alcance efectivo **en la capa de acceso a datos**, no en la UI. Se pasará un "contexto de acceso" (actor + permisos + alcance efectivo) a cada operación de repositorio, que rechaza o filtra por defecto; ningún usuario alcanza una sucursal no asignada, y dentro de la asignada solo ve lo que sus permisos autorizan.
 - *Alternativa descartada:* filtrar en la UI/handlers → una ruta olvidada = fuga entre sucursales.
+- *Alternativa descartada:* alcance de una sola sucursal por asignación → no cubre al empleado que trabaja en varias.
 
 ### D4 — Subsistema de autorizaciones genérico y parametrizado por tipo
 Una sola entidad `SolicitudAutorizacion { tipo, solicitante, alcance, payload, estado, resolutor, resuelto_en }` con máquina de estados `pendiente → aprobada|rechazada`. El **efecto** de aprobar se delega al consumidor del tipo (gasto ahora; traspaso después) vía un contrato (trait) que el subsistema invoca sin conocer la lógica interna.

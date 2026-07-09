@@ -20,9 +20,10 @@
 - [ ] 3.2 Modelar `Usuario`, credenciales y sesión con permisos efectivos (unión de roles)
 - [ ] 3.3 Definir el catálogo de **permisos atómicos** como enumeración extensible
 - [ ] 3.4 Modelar `Rol` como conjunto editable de permisos; alta/edición en caliente
-- [ ] 3.5 Modelar la asignación rol→usuario con `Alcance { global|matriz|sucursal }`
-- [ ] 3.6 Implementar autenticación (login válido/ inválido) y derivación de permisos efectivos
-- [ ] 3.7 Proteger gestión de usuarios/roles/sucursales con sus permisos (`gestionar_*`)
+- [ ] 3.5 Modelar la asignación rol→usuario con `Alcance { global | matriz | conjunto de sucursales }` y calcular el alcance efectivo (unión de asignaciones)
+- [ ] 3.6 Garantizar que ningún usuario alcance una sucursal no asignada (empleado de 1, de varias, o admin global)
+- [ ] 3.7 Implementar autenticación (login válido/ inválido) y derivación de permisos efectivos
+- [ ] 3.8 Proteger gestión de usuarios/roles/sucursales con sus permisos (`gestionar_*`)
 
 ## 4. Catálogo de productos (`product-catalog`)
 
