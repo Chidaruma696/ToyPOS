@@ -1,0 +1,30 @@
+# Rust
+/target/
+**/*.rs.bk
+*.pdb
+
+# Node / Vue / Tauri front-end
+node_modules/
+dist/
+dist-ssr/
+*.local
+/src-tauri/target/
+
+# Databases locales (SQLite)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Entorno / secretos
+.env
+.env.*
+!.env.example
+
+# Editores / SO
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
