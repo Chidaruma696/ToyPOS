@@ -43,3 +43,11 @@ El sistema SHALL considerar un producto **congelado** (no vendible) en una sucur
 #### Scenario: Descongelar al fijar precio
 - **WHEN** el admin fija el precio faltante del producto congelado
 - **THEN** el producto pasa a vendible sin ningún paso adicional
+
+### Requirement: El precio no se materializa en la etiqueta
+El sistema SHALL resolver el precio en el punto de venta a partir de la configuración de la sucursal; el precio SHALL NO imprimirse ni codificarse en la etiqueta del producto.
+
+#### Scenario: Cambiar precio no invalida etiquetas
+- **WHEN** el admin cambia el precio de un producto en una sucursal
+- **THEN** las etiquetas ya impresas siguen siendo válidas y el nuevo precio aplica en la siguiente venta
+
