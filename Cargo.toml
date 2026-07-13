@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = ["domain", "storage"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.85"
+
+# Dependencias compartidas: la versión vive una sola vez (DRY).
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+uuid = { version = "1", features = ["v4", "serde"] }
+jiff = { version = "0.2", features = ["serde"] }
+argon2 = "0.5"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "sqlite"] }
+domain = { path = "domain" }
+
+[workspace.lints.clippy]
+# Estricto: clippy en modo deny (tarea 1.5, CI `clippy -D warnings`).
+all = { level = "deny", priority = -1 }

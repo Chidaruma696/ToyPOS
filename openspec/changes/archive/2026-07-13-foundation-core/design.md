@@ -196,3 +196,4 @@ Además de comprar `pieza` a proveedores externos (con GTIN de fábrica) y produ
 ## Open Questions
 
 - **Selección de nivel en caja** (diferido al POS): qué nivel aplica según cantidad/peso, y **dónde viven los umbrales** (por producto / sucursal / global), se deciden al planear el POS. El modelo de tres niveles ya lo soporta; default propuesto → `mayoreo` = venta por caja/granel, `menudeo ↔ medio_mayoreo` por umbral automático con override si el usuario tiene el permiso.
+- **Gating de lectura de la bitácora** (diferido a la cara admin): la **escritura** de la bitácora es transversal, inmutable y está garantizada por la fundación (D11); pero *quién puede leerla* no está decidido — ¿un permiso `ver_bitacora` **por-sucursal** (filtrando por el alcance de cada entrada) o **de-sistema** (todo o nada)? Hoy la lectura (`bitacora_de`) no exige permiso; se decide al construir la vista de auditoría del panel de administración, que es su primer consumidor real.
