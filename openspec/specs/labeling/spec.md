@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define el **etiquetado de producción** de ToyPOS: etiquetas **por-ítem** con identidad propia para `peso_variable` (EAN-13 per-ítem con peso + discriminador antiduplicado, resuelto por lookup local), cantidad por **caja** para `pieza`, el contenido físico de la etiqueta (exactamente 3 elementos: barcode, nombre y caducidad `DD/MM/AAAA` — sin precio ni fecha de etiquetado), la **caducidad nominal** congelada al etiquetar (`fecha_etiquetado + vida_util`, jamás bloquea la venta) y la **alerta automática "por vencer"** (5 días antes, solo expendios, agrupada por producto, a la sucursal y a la administración). Etiquetar **no mueve inventario**: matriz produce sin llevar stock propio; el stock del sistema nace con la recepción en los expendios (capa envío/recepción, futura).
+Define el **etiquetado de producción** de ToyPOS: etiquetas **por-ítem** con identidad propia para `peso_variable` (EAN-13 per-ítem con peso + discriminador antiduplicado, resuelto por lookup local), cantidad por **caja** para `pieza`, el contenido físico de la etiqueta (exactamente 3 elementos: barcode, nombre y caducidad `DD/MM/AAAA` — sin precio ni fecha de etiquetado), la **caducidad nominal** congelada al etiquetar (`fecha_etiquetado + vida_util`, jamás bloquea la venta) y la **alerta automática "por vencer"** (5 días antes, solo expendios, agrupada por producto, a la sucursal y a la administración). Etiquetar **no mueve inventario**: matriz produce sin llevar stock propio; el stock del sistema nace con la recepción en los expendios (capacidad `shipments`).
 
 ## Requirements
 
@@ -81,7 +81,7 @@ El sistema SHALL permitir **cerrar una caja** que agrupa lo etiquetado — las e
 - **THEN** la caja queda registrada con sus N etiquetas y su peso total consultable
 
 ### Requirement: Etiquetar no altera el inventario
-El acto de etiquetar (pesadas, etiquetas o cajas) SHALL NO producir movimientos de inventario ni alterar existencias: matriz produce **sin llevar stock propio**; el inventario del sistema nace con la recepción en los expendios (capacidad de envío/recepción, futura). El ajuste absoluto sigue disponible donde sí se lleva stock.
+El acto de etiquetar (pesadas, etiquetas o cajas) SHALL NO producir movimientos de inventario ni alterar existencias: matriz produce **sin llevar stock propio**; el inventario del sistema nace con la recepción en los expendios (capacidad `shipments`). El ajuste absoluto sigue disponible donde sí se lleva stock.
 
 #### Scenario: La existencia no cambia al etiquetar
 - **WHEN** se etiquetan pesadas y se cierran cajas de un producto en una sucursal

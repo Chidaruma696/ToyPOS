@@ -54,6 +54,8 @@ pub enum Permiso {
     VerInventario,
     Etiquetar,
     VerNotificaciones,
+    Enviar,
+    Recibir,
     // -- de-sistema --
     AutoaprobarGasto,
     GestionarUsuarios,
@@ -66,14 +68,14 @@ impl Permiso {
     #[must_use]
     pub fn clase(self) -> ClasePermiso {
         use Permiso::{
-            AjustarInventario, AutoaprobarGasto, AutorizarGasto, EditarPrecio, Etiquetar,
+            AjustarInventario, AutoaprobarGasto, AutorizarGasto, EditarPrecio, Enviar, Etiquetar,
             GestionarProductos, GestionarRoles, GestionarSucursales, GestionarUsuarios, OperarCaja,
-            RegistrarGasto, Vender, VerConciliacion, VerInventario, VerNotificaciones,
+            Recibir, RegistrarGasto, Vender, VerConciliacion, VerInventario, VerNotificaciones,
         };
         match self {
             Vender | EditarPrecio | RegistrarGasto | AutorizarGasto | OperarCaja
             | VerConciliacion | AjustarInventario | VerInventario | Etiquetar
-            | VerNotificaciones => ClasePermiso::PorSucursal,
+            | VerNotificaciones | Enviar | Recibir => ClasePermiso::PorSucursal,
             AutoaprobarGasto | GestionarUsuarios | GestionarRoles | GestionarSucursales
             | GestionarProductos => ClasePermiso::DeSistema,
         }
@@ -144,6 +146,8 @@ impl ContextoAcceso {
             Permiso::VerInventario,
             Permiso::Etiquetar,
             Permiso::VerNotificaciones,
+            Permiso::Enviar,
+            Permiso::Recibir,
             Permiso::AutoaprobarGasto,
             Permiso::GestionarUsuarios,
             Permiso::GestionarRoles,

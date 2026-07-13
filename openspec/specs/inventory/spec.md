@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define el **inventario por sucursal** de ToyPOS: una existencia por `producto × sucursal` expresada en la unidad natural del producto (`pieza` en unidades enteras, `peso_variable` en gramos), alimentada por **movimientos tipados append-only** con estado `aplicado | revertido`, auditoría de actor y actualización atómica del saldo. Cubre el ajuste manual absoluto con motivo (permiso `ajustar_inventario`), la reversión limpia de movimientos, la regla de no-negatividad y la consulta de existencias (permiso `ver_inventario`), siempre bajo alcance por sucursal. La definición del producto vive en `product-catalog`; los tipos de movimiento `recepcion` y `venta` quedan reservados para capacidades futuras.
+Define el **inventario por sucursal** de ToyPOS: una existencia por `producto × sucursal` expresada en la unidad natural del producto (`pieza` en unidades enteras, `peso_variable` en gramos), alimentada por **movimientos tipados append-only** con estado `aplicado | revertido`, auditoría de actor y actualización atómica del saldo. Cubre el ajuste manual absoluto con motivo (permiso `ajustar_inventario`), la reversión limpia de movimientos, la regla de no-negatividad y la consulta de existencias (permiso `ver_inventario`), siempre bajo alcance por sucursal. La definición del producto vive en `product-catalog`; los movimientos `envio` y `recepcion` los postea la capacidad `shipments`, y `venta` queda reservado para el POS futuro.
 
 ## Requirements
 
@@ -22,7 +22,7 @@ El sistema SHALL mantener una **existencia** por cada combinación de `producto 
 - **THEN** cada sucursal reporta su propia existencia sin afectar a la otra
 
 ### Requirement: Movimientos de inventario tipados, append-only y auditados
-Toda variación de existencia SHALL registrarse como un **movimiento** con: tipo (extensible; hoy `ajuste`, y `recepcion` y `venta` reservados para capacidades futuras), cantidad con signo en la unidad del producto, motivo cuando aplique, un **estado** `aplicado | revertido`, actor y marca de tiempo. El registro de movimientos SHALL ser **append-only**: un movimiento no se edita salvo el toggle de su estado al revertir (ver reversión), y nunca se borra. El **saldo** de la existencia SHALL actualizarse en la **misma operación atómica** que registra o togglea un movimiento, de modo que el saldo siempre iguale la suma de los deltas de los movimientos **aplicados** (vigentes). Cada movimiento SHALL quedar atribuido a su actor en la bitácora de auditoría (usuario o `sistema`).
+Toda variación de existencia SHALL registrarse como un **movimiento** con: tipo (extensible; hoy `ajuste`, `envio` y `recepcion` — posteados por el ajuste manual y por la capacidad `shipments` — y `venta` reservado para el POS futuro), cantidad con signo en la unidad del producto, motivo cuando aplique, un **estado** `aplicado | revertido`, actor y marca de tiempo. El registro de movimientos SHALL ser **append-only**: un movimiento no se edita salvo el toggle de su estado al revertir (ver reversión), y nunca se borra. El **saldo** de la existencia SHALL actualizarse en la **misma operación atómica** que registra o togglea un movimiento, de modo que el saldo siempre iguale la suma de los deltas de los movimientos **aplicados** (vigentes). Cada movimiento SHALL quedar atribuido a su actor en la bitácora de auditoría (usuario o `sistema`).
 
 #### Scenario: Un movimiento actualiza el saldo atómicamente
 - **WHEN** se aplica un movimiento de +5 unidades sobre una existencia de 10

@@ -9,11 +9,13 @@ use crate::acceso::{Actor, ContextoAcceso};
 use crate::error::ErrorDominio;
 use crate::tiempo::Instante;
 
-/// Tipo de notificación. Extensible por variante (como los permisos, D2); hoy
-/// el único productor es la alerta "por vencer" (D36).
+/// Tipo de notificación. Extensible por variante (como los permisos, D2):
+/// `PorVencer` la emite el barrido de caducidad (D36) y `DiscrepanciaEnvio` la
+/// recepción con faltantes (D41).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TipoNotificacion {
     PorVencer,
+    DiscrepanciaEnvio,
 }
 
 /// Un aviso operativo dirigido a la bandeja de una sucursal. Se marca leída

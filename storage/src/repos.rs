@@ -8,6 +8,7 @@ use domain::acceso::{ContextoAcceso, Permiso};
 use domain::aprobacion::Aprobacion;
 use domain::barcode::Ean13;
 use domain::caja::{Corte, ResumenVentas, SesionCaja};
+use domain::envio::Envio;
 use domain::etiqueta::{CajaEtiquetado, Etiqueta};
 use domain::gasto::Gasto;
 use domain::inventario::{Cantidad, MovimientoInventario};
@@ -299,6 +300,52 @@ pub trait Etiquetado {
     /// Devuelve cuántas notificaciones emitió.
     async fn barrer_por_vencer(&self, ctx: &ContextoAcceso, referencia: Instante)
     -> Resultado<u64>;
+}
+
+/// El contenido de un envío: sus cajas y sus etiquetas **sueltas** (las
+/// agrupadas en una caja viajan con ella y se consultan vía `etiquetas_de_caja`).
+/// Tras recibir, presentes y faltantes se distinguen por su estado.
+#[derive(Debug, Clone)]
+pub struct ContenidoEnvio {
+    pub cajas: Vec<CajaEtiquetado>,
+    pub etiquetas_sueltas: Vec<Etiqueta>,
+}
+
+/// Envíos entre sucursales (`shipments` · D38–D43).
+#[allow(async_fn_in_trait)]
+pub trait Envios {
+    /// Prepara un envío ligando su contenido (cajas y etiquetas sueltas del
+    /// origen, activas y libres, D42). Exige `enviar` + alcance sobre el origen;
+    /// un extremo debe ser la matriz (D39). Asigna folio (D18).
+    async fn preparar_envio(
+        &self,
+        ctx: &ContextoAcceso,
+        origen: Uuid,
+        destino: Uuid,
+        cajas: &[Uuid],
+        etiquetas_sueltas: &[Uuid],
+    ) -> Resultado<Envio>;
+    /// Marca el envío como enviado. En una devolución (origen expendio) postea
+    /// la salida `envio` por producto, sujeta a no-negatividad (D40/D25).
+    async fn marcar_enviado(&self, ctx: &ContextoAcceso, envio: Uuid) -> Resultado<()>;
+    /// Cancela un envío preparado y libera su contenido (D42).
+    async fn cancelar_envio(&self, ctx: &ContextoAcceso, envio: Uuid) -> Resultado<()>;
+    /// Recibe **lo real**: lo presente cambia al destino (y postea `recepcion`
+    /// por producto si el destino es expendio); lo faltante queda extraviado,
+    /// anotado en el documento y notificado a la administración (D40/D41).
+    async fn recibir_envio(
+        &self,
+        ctx: &ContextoAcceso,
+        envio: Uuid,
+        presentes: &[Uuid],
+    ) -> Resultado<Envio>;
+    /// El envío por folio, con su contenido; dentro del alcance de alguno de
+    /// sus extremos.
+    async fn envio_por_folio(
+        &self,
+        ctx: &ContextoAcceso,
+        folio: &str,
+    ) -> Resultado<Option<(Envio, ContenidoEnvio)>>;
 }
 
 /// Notificaciones del sistema a usuarios (`notifications` · D37).

@@ -10,6 +10,9 @@ use domain::acceso::{Actor, Alcance, ContextoAcceso, Permiso};
 use domain::aprobacion::{Aprobacion, EstadoAprobacion};
 use domain::barcode::{Ean13, MODULO_DISCRIMINADOR, PREFIJO_MATRIZ};
 use domain::caja::{Corte, EstadoSesion, ResumenVentas, SesionCaja};
+use domain::envio::{
+    Envio, EstadoEnvio, deltas_por_producto, movimiento_recepcion, movimiento_salida,
+};
 use domain::error::ErrorDominio;
 use domain::etiqueta::{CajaEtiquetado, EstadoEtiqueta, Etiqueta};
 use domain::folio::{Folio, TipoDocumento};
@@ -35,12 +38,12 @@ use uuid::Uuid;
 use crate::error::{ErrorAlmacen, Resultado};
 use crate::migraciones;
 use crate::repos::{
-    AltaCodigo, Auditoria, BorradorProducto, Caja, Catalogo, EntradaBitacora, Etiquetado,
+    AltaCodigo, Auditoria, BorradorProducto, Caja, Catalogo, EntradaBitacora, Envios, Etiquetado,
     Inventario, Notificaciones, Organizacion, Precios,
 };
 
 /// Todos los permisos: se otorgan al administrador inicial en el bootstrap.
-const TODOS_LOS_PERMISOS: [Permiso; 15] = [
+const TODOS_LOS_PERMISOS: [Permiso; 17] = [
     Permiso::Vender,
     Permiso::EditarPrecio,
     Permiso::RegistrarGasto,
@@ -51,6 +54,8 @@ const TODOS_LOS_PERMISOS: [Permiso; 15] = [
     Permiso::VerInventario,
     Permiso::Etiquetar,
     Permiso::VerNotificaciones,
+    Permiso::Enviar,
+    Permiso::Recibir,
     Permiso::AutoaprobarGasto,
     Permiso::GestionarUsuarios,
     Permiso::GestionarRoles,
@@ -352,6 +357,7 @@ fn estado_aprob_de(s: &str) -> Resultado<EstadoAprobacion> {
 fn tipo_mov_txt(t: TipoMovimiento) -> &'static str {
     match t {
         TipoMovimiento::Ajuste => "Ajuste",
+        TipoMovimiento::Envio => "Envio",
         TipoMovimiento::Recepcion => "Recepcion",
         TipoMovimiento::Venta => "Venta",
     }
@@ -360,6 +366,7 @@ fn tipo_mov_txt(t: TipoMovimiento) -> &'static str {
 fn tipo_mov_de(s: &str) -> Resultado<TipoMovimiento> {
     match s {
         "Ajuste" => Ok(TipoMovimiento::Ajuste),
+        "Envio" => Ok(TipoMovimiento::Envio),
         "Recepcion" => Ok(TipoMovimiento::Recepcion),
         "Venta" => Ok(TipoMovimiento::Venta),
         otro => Err(corrupto(format!("tipo de movimiento desconocido: {otro}"))),
@@ -386,6 +393,7 @@ fn estado_mov_de(s: &str) -> Resultado<EstadoMovimiento> {
 fn estado_eti_txt(e: EstadoEtiqueta) -> &'static str {
     match e {
         EstadoEtiqueta::Activa => "Activa",
+        EstadoEtiqueta::Extraviada => "Extraviada",
         EstadoEtiqueta::Vendida => "Vendida",
     }
 }
@@ -393,6 +401,7 @@ fn estado_eti_txt(e: EstadoEtiqueta) -> &'static str {
 fn estado_eti_de(s: &str) -> Resultado<EstadoEtiqueta> {
     match s {
         "Activa" => Ok(EstadoEtiqueta::Activa),
+        "Extraviada" => Ok(EstadoEtiqueta::Extraviada),
         "Vendida" => Ok(EstadoEtiqueta::Vendida),
         otro => Err(corrupto(format!("estado de etiqueta desconocido: {otro}"))),
     }
@@ -401,16 +410,45 @@ fn estado_eti_de(s: &str) -> Resultado<EstadoEtiqueta> {
 fn tipo_notif_txt(t: TipoNotificacion) -> &'static str {
     match t {
         TipoNotificacion::PorVencer => "PorVencer",
+        TipoNotificacion::DiscrepanciaEnvio => "DiscrepanciaEnvio",
     }
 }
 
 fn tipo_notif_de(s: &str) -> Resultado<TipoNotificacion> {
     match s {
         "PorVencer" => Ok(TipoNotificacion::PorVencer),
+        "DiscrepanciaEnvio" => Ok(TipoNotificacion::DiscrepanciaEnvio),
         otro => Err(corrupto(format!(
             "tipo de notificación desconocido: {otro}"
         ))),
     }
+}
+
+fn estado_envio_de(s: &str) -> Resultado<EstadoEnvio> {
+    match s {
+        "Preparado" => Ok(EstadoEnvio::Preparado),
+        "Enviado" => Ok(EstadoEnvio::Enviado),
+        "Recibido" => Ok(EstadoEnvio::Recibido),
+        "Cancelado" => Ok(EstadoEnvio::Cancelado),
+        otro => Err(corrupto(format!("estado de envío desconocido: {otro}"))),
+    }
+}
+
+fn map_envio(r: &SqliteRow) -> Resultado<Envio> {
+    let enviado: Option<String> = r.try_get("enviado_en")?;
+    let recibido: Option<String> = r.try_get("recibido_en")?;
+    Ok(Envio {
+        id: uuid_de(r.try_get("id")?)?,
+        folio: Folio::desde_texto(r.try_get("folio")?),
+        origen: uuid_de(r.try_get("origen_id")?)?,
+        destino: uuid_de(r.try_get("destino_id")?)?,
+        estado: estado_envio_de(r.try_get("estado")?)?,
+        preparado_en: inst_de(r.try_get("preparado_en")?)?,
+        enviado_en: enviado.map(|s| inst_de(&s)).transpose()?,
+        recibido_en: recibido.map(|s| inst_de(&s)).transpose()?,
+        discrepancia: r.try_get("discrepancia")?,
+        actualizado: inst_de(r.try_get("updated_at")?)?,
+    })
 }
 
 fn fecha_de(s: &str) -> Resultado<Date> {
@@ -2033,11 +2071,15 @@ impl Etiquetado for Almacen {
                 .map_err(corrupto)?
                 .to_string();
 
-            // Etiquetas por-ítem (peso_variable), agrupadas por producto.
+            // Etiquetas por-ítem (peso_variable), agrupadas por producto. Lo
+            // comprometido en un envío ya **enviado** (directo o vía su caja)
+            // salió físicamente: no alerta aquí (D40/D41).
             let grupos = sqlx::query(
                 "SELECT e.producto_id, COUNT(*) AS n, SUM(e.peso) AS peso, MIN(e.caducidad) AS cad, p.nombre AS nombre \
                  FROM etiqueta e JOIN producto p ON p.id = e.producto_id \
                  WHERE e.sucursal_id = ? AND e.estado = 'Activa' AND e.caducidad <= ? \
+                   AND NOT EXISTS (SELECT 1 FROM envio v WHERE v.estado = 'Enviado' \
+                     AND (v.id = e.envio_id OR v.id = (SELECT c2.envio_id FROM caja_etiquetado c2 WHERE c2.id = e.caja_id))) \
                  GROUP BY e.producto_id",
             )
             .bind(sucursal.to_string())
@@ -2065,12 +2107,14 @@ impl Etiquetado for Almacen {
                 .await?;
             }
 
-            // Cajas de pieza (cantidad), solo las que llevan caducidad propia (D35).
+            // Cajas de pieza (cantidad), solo las que llevan caducidad propia
+            // (D35) y no van en un envío ya enviado.
             let grupos = sqlx::query(
                 "SELECT c.producto_id, SUM(c.cantidad) AS n, MIN(c.caducidad) AS cad, p.nombre AS nombre \
                  FROM caja_etiquetado c JOIN producto p ON p.id = c.producto_id \
                  WHERE c.sucursal_id = ? AND c.estado = 'Activa' AND c.cantidad IS NOT NULL \
                    AND c.caducidad IS NOT NULL AND c.caducidad <= ? \
+                   AND NOT EXISTS (SELECT 1 FROM envio v WHERE v.estado = 'Enviado' AND v.id = c.envio_id) \
                  GROUP BY c.producto_id",
             )
             .bind(sucursal.to_string())
@@ -2142,6 +2186,560 @@ impl Almacen {
             emitidas += 1;
         }
         Ok(emitidas)
+    }
+}
+
+// ================== impl Envios ==================
+
+/// Sucursal completa con la conexión de una transacción.
+async fn sucursal_tx(conn: &mut sqlx::SqliteConnection, id: Uuid) -> Resultado<Sucursal> {
+    let row = sqlx::query("SELECT * FROM sucursal WHERE id = ?")
+        .bind(id.to_string())
+        .fetch_optional(conn)
+        .await?
+        .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("sucursal {id}")))?;
+    map_sucursal(&row)
+}
+
+fn map_caja_etiquetado(r: &SqliteRow) -> Resultado<CajaEtiquetado> {
+    let caducidad: Option<String> = r.try_get("caducidad")?;
+    Ok(CajaEtiquetado {
+        id: uuid_de(r.try_get("id")?)?,
+        producto: uuid_de(r.try_get("producto_id")?)?,
+        sucursal: uuid_de(r.try_get("sucursal_id")?)?,
+        cantidad: r.try_get("cantidad")?,
+        fecha_etiquetado: inst_de(r.try_get("fecha_etiquetado")?)?,
+        caducidad: caducidad.map(|c| fecha_de(&c)).transpose()?,
+        estado: estado_eti_de(r.try_get("estado")?)?,
+        actualizado: inst_de(r.try_get("updated_at")?)?,
+    })
+}
+
+/// Las cajas y etiquetas **sueltas** ligadas a un envío (D42).
+async fn contenido_de_envio(
+    conn: &mut sqlx::SqliteConnection,
+    envio: Uuid,
+) -> Resultado<(Vec<CajaEtiquetado>, Vec<Etiqueta>)> {
+    let filas = sqlx::query("SELECT * FROM caja_etiquetado WHERE envio_id = ? ORDER BY updated_at")
+        .bind(envio.to_string())
+        .fetch_all(&mut *conn)
+        .await?;
+    let cajas = filas
+        .iter()
+        .map(map_caja_etiquetado)
+        .collect::<Resultado<Vec<_>>>()?;
+    let filas = sqlx::query("SELECT * FROM etiqueta WHERE envio_id = ? ORDER BY updated_at")
+        .bind(envio.to_string())
+        .fetch_all(&mut *conn)
+        .await?;
+    let sueltas = filas
+        .iter()
+        .map(map_etiqueta)
+        .collect::<Resultado<Vec<_>>>()?;
+    Ok((cajas, sueltas))
+}
+
+impl Almacen {
+    /// `(producto, cantidad)` de un conjunto de cajas y sueltas: la caja de
+    /// pieza aporta sus unidades; la de pesadas, la suma de sus etiquetas; la
+    /// etiqueta suelta, su peso (D40).
+    async fn items_para_deltas(
+        conn: &mut sqlx::SqliteConnection,
+        cajas: &[CajaEtiquetado],
+        sueltas: &[Etiqueta],
+    ) -> Resultado<Vec<(Uuid, Cantidad)>> {
+        let mut items = Vec::new();
+        for c in cajas {
+            match c.cantidad {
+                Some(n) => items.push((c.producto, Cantidad::Unidades(n))),
+                None => {
+                    let total: i64 = sqlx::query(
+                        "SELECT COALESCE(SUM(peso), 0) AS total FROM etiqueta WHERE caja_id = ?",
+                    )
+                    .bind(c.id.to_string())
+                    .fetch_one(&mut *conn)
+                    .await?
+                    .try_get("total")?;
+                    items.push((c.producto, Cantidad::Gramos(Gramos::new(total))));
+                }
+            }
+        }
+        for e in sueltas {
+            items.push((e.producto, Cantidad::Gramos(e.peso)));
+        }
+        Ok(items)
+    }
+
+    /// Postea un movimiento por producto y su saldo en la misma transacción
+    /// (D23/D40); la no-negatividad la garantiza `Existencia::aplicar` (D25).
+    async fn postear_deltas_envio(
+        tx: &mut sqlx::SqliteTransaction<'_>,
+        ctx: &ContextoAcceso,
+        envio: &Envio,
+        sucursal: Uuid,
+        salida: bool,
+        ahora: Instante,
+    ) -> Resultado<()> {
+        let (cajas, sueltas) = contenido_de_envio(&mut *tx, envio.id).await?;
+        let items = Almacen::items_para_deltas(&mut *tx, &cajas, &sueltas).await?;
+        for (producto, cantidad) in deltas_por_producto(items)? {
+            if cantidad.es_cero() {
+                continue;
+            }
+            let mov = if salida {
+                movimiento_salida(producto, sucursal, cantidad, &envio.folio, ahora)
+            } else {
+                movimiento_recepcion(producto, sucursal, cantidad, &envio.folio, ahora)
+            };
+            let saldo = saldo_tx(&mut *tx, producto, sucursal, cantidad.unidad()).await?;
+            let nueva = Existencia::nueva(producto, sucursal, saldo).aplicar(mov.delta)?;
+            fijar_existencia(
+                &mut *tx,
+                producto,
+                sucursal,
+                nueva.cantidad.magnitud(),
+                ahora,
+            )
+            .await?;
+            insertar_movimiento(&mut *tx, &mov).await?;
+            auditar(
+                tx,
+                ahora,
+                ctx,
+                "Modificar",
+                "inventario",
+                producto,
+                Some(saldo.magnitud().to_string()),
+                Some(format!(
+                    "{} (suc {sucursal}; {})",
+                    nueva.cantidad.magnitud(),
+                    envio.folio.get()
+                )),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+}
+
+impl Envios for Almacen {
+    async fn preparar_envio(
+        &self,
+        ctx: &ContextoAcceso,
+        origen: Uuid,
+        destino: Uuid,
+        cajas: &[Uuid],
+        etiquetas_sueltas: &[Uuid],
+    ) -> Resultado<Envio> {
+        if cajas.is_empty() && etiquetas_sueltas.is_empty() {
+            return Err(ErrorDominio::Invalido("un envío requiere contenido".into()).into());
+        }
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let so = sucursal_tx(&mut tx, origen).await?;
+        let sd = sucursal_tx(&mut tx, destino).await?;
+        let folio =
+            Almacen::siguiente_folio(&mut tx, origen, &so.codigo, TipoDocumento::Envio).await?;
+        // El dominio valida permiso+alcance sobre el origen y la dirección (D38/D39).
+        let envio = Envio::preparar(ctx, folio, origen, so.tipo, destino, sd.tipo, ahora)?;
+        // El documento primero (el contenido lo referencia por FK); si el
+        // contenido no valida, la transacción revierte todo.
+        sqlx::query(
+            "INSERT INTO envio (id, folio, origen_id, destino_id, estado, preparado_en, updated_at) \
+             VALUES (?, ?, ?, ?, 'Preparado', ?, ?)",
+        )
+        .bind(envio.id.to_string())
+        .bind(envio.folio.get())
+        .bind(envio.origen.to_string())
+        .bind(envio.destino.to_string())
+        .bind(inst_txt(envio.preparado_en))
+        .bind(inst_txt(envio.actualizado))
+        .execute(&mut *tx)
+        .await
+        .map_err(mapear_conflicto)?;
+
+        // Contenido: del origen, activo y libre; queda ligado al documento (D42).
+        // "Comprometido" = ligado a un envío preparado o enviado; uno ya
+        // recibido libera la pieza para su siguiente viaje (p. ej. devolución).
+        for id in cajas {
+            let row = sqlx::query(
+                "SELECT c.sucursal_id, c.estado, c.envio_id, v.estado AS estado_envio \
+                 FROM caja_etiquetado c LEFT JOIN envio v ON v.id = c.envio_id WHERE c.id = ?",
+            )
+            .bind(id.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("caja {id}")))?;
+            let sin_envio_vigente = row.try_get::<Option<String>, _>("envio_id")?.is_none()
+                || row.try_get::<Option<String>, _>("estado_envio")?.as_deref() == Some("Recibido");
+            let libre = uuid_de(row.try_get("sucursal_id")?)? == origen
+                && row.try_get::<String, _>("estado")? == "Activa"
+                && sin_envio_vigente;
+            if !libre {
+                return Err(ErrorDominio::Regla(format!(
+                    "la caja {id} no está disponible en el origen para enviarse"
+                ))
+                .into());
+            }
+            sqlx::query("UPDATE caja_etiquetado SET envio_id = ?, updated_at = ? WHERE id = ?")
+                .bind(envio.id.to_string())
+                .bind(inst_txt(ahora))
+                .bind(id.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+        for id in etiquetas_sueltas {
+            let row = sqlx::query(
+                "SELECT e.sucursal_id, e.estado, e.caja_id, e.envio_id, v.estado AS estado_envio \
+                 FROM etiqueta e LEFT JOIN envio v ON v.id = e.envio_id WHERE e.id = ?",
+            )
+            .bind(id.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("etiqueta {id}")))?;
+            let sin_envio_vigente = row.try_get::<Option<String>, _>("envio_id")?.is_none()
+                || row.try_get::<Option<String>, _>("estado_envio")?.as_deref() == Some("Recibido");
+            let libre = uuid_de(row.try_get("sucursal_id")?)? == origen
+                && row.try_get::<String, _>("estado")? == "Activa"
+                && row.try_get::<Option<String>, _>("caja_id")?.is_none()
+                && sin_envio_vigente;
+            if !libre {
+                return Err(ErrorDominio::Regla(format!(
+                    "la etiqueta {id} no está suelta y disponible en el origen"
+                ))
+                .into());
+            }
+            sqlx::query("UPDATE etiqueta SET envio_id = ?, updated_at = ? WHERE id = ?")
+                .bind(envio.id.to_string())
+                .bind(inst_txt(ahora))
+                .bind(id.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Crear",
+            "envio",
+            envio.id,
+            None,
+            Some(format!(
+                "{} ({} cajas, {} sueltas)",
+                envio.folio.get(),
+                cajas.len(),
+                etiquetas_sueltas.len()
+            )),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(envio)
+    }
+
+    async fn marcar_enviado(&self, ctx: &ContextoAcceso, envio: Uuid) -> Resultado<()> {
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT * FROM envio WHERE id = ?")
+            .bind(envio.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("envío {envio}")))?;
+        let mut e = map_envio(&row)?;
+        e.marcar_enviado(ctx, ahora)?;
+        // Devolución: la mercancía sale del expendio en este momento (D40).
+        let origen = sucursal_tx(&mut tx, e.origen).await?;
+        if origen.tipo == TipoSucursal::Expendio {
+            Almacen::postear_deltas_envio(&mut tx, ctx, &e, e.origen, true, ahora).await?;
+        }
+        sqlx::query(
+            "UPDATE envio SET estado = 'Enviado', enviado_en = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(e.enviado_en.map(inst_txt))
+        .bind(inst_txt(ahora))
+        .bind(envio.to_string())
+        .execute(&mut *tx)
+        .await?;
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Modificar",
+            "envio",
+            envio,
+            Some("Preparado".into()),
+            Some("Enviado".into()),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn cancelar_envio(&self, ctx: &ContextoAcceso, envio: Uuid) -> Resultado<()> {
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT * FROM envio WHERE id = ?")
+            .bind(envio.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("envío {envio}")))?;
+        let mut e = map_envio(&row)?;
+        e.cancelar(ctx, ahora)?;
+        // Cancelar libera el contenido (D42).
+        sqlx::query(
+            "UPDATE caja_etiquetado SET envio_id = NULL, updated_at = ? WHERE envio_id = ?",
+        )
+        .bind(inst_txt(ahora))
+        .bind(envio.to_string())
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query("UPDATE etiqueta SET envio_id = NULL, updated_at = ? WHERE envio_id = ?")
+            .bind(inst_txt(ahora))
+            .bind(envio.to_string())
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("UPDATE envio SET estado = 'Cancelado', updated_at = ? WHERE id = ?")
+            .bind(inst_txt(ahora))
+            .bind(envio.to_string())
+            .execute(&mut *tx)
+            .await?;
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Modificar",
+            "envio",
+            envio,
+            Some("Preparado".into()),
+            Some("Cancelado".into()),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn recibir_envio(
+        &self,
+        ctx: &ContextoAcceso,
+        envio: Uuid,
+        presentes: &[Uuid],
+    ) -> Resultado<Envio> {
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT * FROM envio WHERE id = ?")
+            .bind(envio.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("envío {envio}")))?;
+        let mut e = map_envio(&row)?;
+        let (cajas, sueltas) = contenido_de_envio(&mut tx, e.id).await?;
+
+        // Lo presente debe ser parte del envío; el resto del contenido faltó (D41).
+        let declarado: std::collections::BTreeSet<Uuid> = cajas
+            .iter()
+            .map(|c| c.id)
+            .chain(sueltas.iter().map(|s| s.id))
+            .collect();
+        for id in presentes {
+            if !declarado.contains(id) {
+                return Err(ErrorDominio::Regla(format!(
+                    "{id} no es parte del contenido del envío"
+                ))
+                .into());
+            }
+        }
+        let presente = |id: &Uuid| presentes.contains(id);
+        let (cajas_ok, cajas_falt): (Vec<_>, Vec<_>) =
+            cajas.into_iter().partition(|c| presente(&c.id));
+        let (sueltas_ok, sueltas_falt): (Vec<_>, Vec<_>) =
+            sueltas.into_iter().partition(|s| presente(&s.id));
+
+        let discrepancia = (!cajas_falt.is_empty() || !sueltas_falt.is_empty()).then(|| {
+            format!(
+                "faltaron {} de {} cajas y {} de {} etiquetas sueltas",
+                cajas_falt.len(),
+                cajas_falt.len() + cajas_ok.len(),
+                sueltas_falt.len(),
+                sueltas_falt.len() + sueltas_ok.len()
+            )
+        });
+        // El dominio valida la transición y el permiso `recibir` en el destino.
+        e.marcar_recibido(ctx, discrepancia.clone(), ahora)?;
+
+        // Lo presente viaja al destino conservando identidad (las etiquetas de
+        // una caja presente viajan con ella).
+        for c in &cajas_ok {
+            sqlx::query("UPDATE caja_etiquetado SET sucursal_id = ?, updated_at = ? WHERE id = ?")
+                .bind(e.destino.to_string())
+                .bind(inst_txt(ahora))
+                .bind(c.id.to_string())
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query("UPDATE etiqueta SET sucursal_id = ?, updated_at = ? WHERE caja_id = ?")
+                .bind(e.destino.to_string())
+                .bind(inst_txt(ahora))
+                .bind(c.id.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+        for s in &sueltas_ok {
+            sqlx::query("UPDATE etiqueta SET sucursal_id = ?, updated_at = ? WHERE id = ?")
+                .bind(e.destino.to_string())
+                .bind(inst_txt(ahora))
+                .bind(s.id.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+        // Lo faltante queda extraviado: fuera de todo stock y de las alertas (D41).
+        for c in &cajas_falt {
+            sqlx::query(
+                "UPDATE caja_etiquetado SET estado = 'Extraviada', updated_at = ? WHERE id = ?",
+            )
+            .bind(inst_txt(ahora))
+            .bind(c.id.to_string())
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(
+                "UPDATE etiqueta SET estado = 'Extraviada', updated_at = ? WHERE caja_id = ?",
+            )
+            .bind(inst_txt(ahora))
+            .bind(c.id.to_string())
+            .execute(&mut *tx)
+            .await?;
+        }
+        for s in &sueltas_falt {
+            sqlx::query("UPDATE etiqueta SET estado = 'Extraviada', updated_at = ? WHERE id = ?")
+                .bind(inst_txt(ahora))
+                .bind(s.id.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // El stock nace en el expendio con lo presente (D40); en matriz, nada.
+        let destino = sucursal_tx(&mut tx, e.destino).await?;
+        if destino.tipo == TipoSucursal::Expendio {
+            let items = Almacen::items_para_deltas(&mut tx, &cajas_ok, &sueltas_ok).await?;
+            for (producto, cantidad) in deltas_por_producto(items)? {
+                if cantidad.es_cero() {
+                    continue;
+                }
+                let mov = movimiento_recepcion(producto, e.destino, cantidad, &e.folio, ahora);
+                let saldo = saldo_tx(&mut tx, producto, e.destino, cantidad.unidad()).await?;
+                let nueva = Existencia::nueva(producto, e.destino, saldo).aplicar(mov.delta)?;
+                fijar_existencia(
+                    &mut tx,
+                    producto,
+                    e.destino,
+                    nueva.cantidad.magnitud(),
+                    ahora,
+                )
+                .await?;
+                insertar_movimiento(&mut tx, &mov).await?;
+                auditar(
+                    &mut tx,
+                    ahora,
+                    ctx,
+                    "Modificar",
+                    "inventario",
+                    producto,
+                    Some(saldo.magnitud().to_string()),
+                    Some(format!(
+                        "{} (suc {}; {})",
+                        nueva.cantidad.magnitud(),
+                        e.destino,
+                        e.folio.get()
+                    )),
+                )
+                .await?;
+            }
+        }
+
+        // La discrepancia se anota y se notifica a la administración (D41).
+        if let Some(msg) = &e.discrepancia {
+            let matriz = {
+                let row = sqlx::query("SELECT id FROM sucursal WHERE tipo = 'Matriz'")
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .ok_or_else(|| ErrorAlmacen::NoEncontrado("sucursal matriz".into()))?;
+                uuid_de(row.try_get("id")?)?
+            };
+            let sistema = ContextoAcceso::sistema();
+            let n = Notificacion::emitir(
+                &sistema,
+                TipoNotificacion::DiscrepanciaEnvio,
+                &format!("Envío {}: {msg}", e.folio.get()),
+                matriz,
+                ahora,
+            )?;
+            insertar_notificacion(&mut tx, &n, None).await?;
+            auditar(
+                &mut tx,
+                ahora,
+                &sistema,
+                "Crear",
+                "notificacion",
+                n.id,
+                None,
+                Some(n.mensaje.clone()),
+            )
+            .await?;
+        }
+
+        sqlx::query(
+            "UPDATE envio SET estado = 'Recibido', recibido_en = ?, discrepancia = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(e.recibido_en.map(inst_txt))
+        .bind(e.discrepancia.clone())
+        .bind(inst_txt(ahora))
+        .bind(envio.to_string())
+        .execute(&mut *tx)
+        .await?;
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Modificar",
+            "envio",
+            envio,
+            Some("Enviado".into()),
+            Some(format!(
+                "Recibido{}",
+                e.discrepancia
+                    .as_deref()
+                    .map(|d| format!(" ({d})"))
+                    .unwrap_or_default()
+            )),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(e)
+    }
+
+    async fn envio_por_folio(
+        &self,
+        ctx: &ContextoAcceso,
+        folio: &str,
+    ) -> Resultado<Option<(Envio, crate::repos::ContenidoEnvio)>> {
+        let row = sqlx::query("SELECT * FROM envio WHERE folio = ?")
+            .bind(folio)
+            .fetch_optional(&self.pool)
+            .await?;
+        let Some(row) = row else {
+            return Ok(None);
+        };
+        let e = map_envio(&row)?;
+        if !ctx.alcance.cubre(e.origen) && !ctx.alcance.cubre(e.destino) {
+            return Ok(None);
+        }
+        let mut conn = self.pool.acquire().await?;
+        let (cajas, etiquetas_sueltas) = contenido_de_envio(&mut conn, e.id).await?;
+        Ok(Some((
+            e,
+            crate::repos::ContenidoEnvio {
+                cajas,
+                etiquetas_sueltas,
+            },
+        )))
     }
 }
 

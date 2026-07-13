@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS movimiento_inventario (
     id          TEXT PRIMARY KEY,
     producto_id TEXT NOT NULL REFERENCES producto(id),
     sucursal_id TEXT NOT NULL REFERENCES sucursal(id),
-    tipo        TEXT NOT NULL CHECK (tipo IN ('Ajuste','Recepcion','Venta')),
+    tipo        TEXT NOT NULL CHECK (tipo IN ('Ajuste','Envio','Recepcion','Venta')),
     delta       INTEGER NOT NULL,
     motivo      TEXT,
     estado      TEXT NOT NULL CHECK (estado IN ('Aplicado','Revertido')),
@@ -153,16 +153,33 @@ CREATE TABLE IF NOT EXISTS movimiento_inventario (
 );
 CREATE INDEX IF NOT EXISTS ix_movimiento_prod_suc ON movimiento_inventario (producto_id, sucursal_id);
 
+-- Envíos entre sucursales (D38–D42): documento con folio, un extremo en la
+-- matriz (D39). Su contenido vive en `envio_id` de cajas y etiquetas (D42);
+-- `discrepancia` anota los faltantes de la recepción (D41).
+CREATE TABLE IF NOT EXISTS envio (
+    id           TEXT PRIMARY KEY,
+    folio        TEXT NOT NULL UNIQUE,
+    origen_id    TEXT NOT NULL REFERENCES sucursal(id),
+    destino_id   TEXT NOT NULL REFERENCES sucursal(id),
+    estado       TEXT NOT NULL CHECK (estado IN ('Preparado','Enviado','Recibido','Cancelado')),
+    preparado_en TEXT NOT NULL,
+    enviado_en   TEXT,
+    recibido_en  TEXT,
+    discrepancia TEXT,
+    updated_at   TEXT NOT NULL
+);
+
 -- Cajas del etiquetado (D35): agrupan etiquetas por-ítem (peso_variable, cantidad
 -- NULL) o unidades idénticas (pieza). `caducidad` NULL en productos externos.
 CREATE TABLE IF NOT EXISTS caja_etiquetado (
     id            TEXT PRIMARY KEY,
     producto_id   TEXT NOT NULL REFERENCES producto(id),
     sucursal_id   TEXT NOT NULL REFERENCES sucursal(id),
+    envio_id      TEXT REFERENCES envio(id),
     cantidad      INTEGER,
     fecha_etiquetado TEXT NOT NULL,
     caducidad     TEXT,                     -- fecha civil YYYY-MM-DD
-    estado        TEXT NOT NULL CHECK (estado IN ('Activa','Vendida')),
+    estado        TEXT NOT NULL CHECK (estado IN ('Activa','Extraviada','Vendida')),
     updated_at    TEXT NOT NULL
 );
 
@@ -176,10 +193,11 @@ CREATE TABLE IF NOT EXISTS etiqueta (
     producto_id   TEXT NOT NULL REFERENCES producto(id),
     sucursal_id   TEXT NOT NULL REFERENCES sucursal(id),
     caja_id       TEXT REFERENCES caja_etiquetado(id),
+    envio_id      TEXT REFERENCES envio(id), -- solo etiquetas sueltas (D42)
     peso          INTEGER NOT NULL,         -- gramos (D6)
     fecha_etiquetado TEXT NOT NULL,
     caducidad     TEXT NOT NULL,            -- fecha civil YYYY-MM-DD
-    estado        TEXT NOT NULL CHECK (estado IN ('Activa','Vendida')),
+    estado        TEXT NOT NULL CHECK (estado IN ('Activa','Extraviada','Vendida')),
     updated_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_etiqueta_suc_cad
@@ -197,7 +215,7 @@ CREATE TABLE IF NOT EXISTS discriminador_seq (
 -- del barrido "por vencer" (D36).
 CREATE TABLE IF NOT EXISTS notificacion (
     id          TEXT PRIMARY KEY,
-    tipo        TEXT NOT NULL CHECK (tipo IN ('PorVencer')),
+    tipo        TEXT NOT NULL CHECK (tipo IN ('PorVencer','DiscrepanciaEnvio')),
     mensaje     TEXT NOT NULL,
     sucursal_id TEXT NOT NULL REFERENCES sucursal(id),
     grupo       TEXT,
@@ -226,8 +244,17 @@ CREATE INDEX IF NOT EXISTS ix_bitacora_entidad ON bitacora (entidad, entidad_id)
 /// Columnas añadidas después del esquema inicial. **Idempotentes** por manejo
 /// del error: si la columna ya existe (base nueva, ya viene en el `CREATE
 /// TABLE`), el "duplicate column" se ignora al aplicar el esquema.
-pub const COLUMNAS_ADITIVAS: [&str; 1] =
-    ["ALTER TABLE producto ADD COLUMN vida_util INTEGER NOT NULL DEFAULT 9"];
+///
+/// **Nota sobre los `CHECK` de enums** (estado/tipo): SQLite no permite
+/// modificarlos con `ALTER`; el esquema canónico de arriba los lleva al día y
+/// el guardián real son los enums de Rust. En pre-release no hay despliegues
+/// con datos: una base vieja cuyo `CHECK` rechace un valor nuevo falla en voz
+/// alta y se recrea (las bases de prueba son efímeras).
+pub const COLUMNAS_ADITIVAS: [&str; 3] = [
+    "ALTER TABLE producto ADD COLUMN vida_util INTEGER NOT NULL DEFAULT 9",
+    "ALTER TABLE caja_etiquetado ADD COLUMN envio_id TEXT REFERENCES envio(id)",
+    "ALTER TABLE etiqueta ADD COLUMN envio_id TEXT REFERENCES envio(id)",
+];
 
 /// Disparadores que hacen la bitácora **inmutable** desde SQL (belt-and-suspenders
 /// sobre la inmutabilidad de la aplicación). Se ejecutan uno a uno porque llevan

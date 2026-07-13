@@ -19,6 +19,7 @@ pub enum TipoDocumento {
     Corte,
     Nota,
     Gasto,
+    Envio,
 }
 
 impl TipoDocumento {
@@ -28,6 +29,7 @@ impl TipoDocumento {
             TipoDocumento::Corte => 'C',
             TipoDocumento::Nota => 'N',
             TipoDocumento::Gasto => 'G',
+            TipoDocumento::Envio => 'E',
         }
     }
 }
@@ -80,6 +82,10 @@ mod tests {
         assert_eq!(
             Folio::componer(&cod, TipoDocumento::Nota, 13280).get(),
             "SNJN13280"
+        );
+        assert_eq!(
+            Folio::componer(&cod, TipoDocumento::Envio, 1).get(),
+            "SNJE1"
         );
     }
 }

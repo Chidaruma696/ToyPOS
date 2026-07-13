@@ -18,11 +18,13 @@ use crate::producto::{OrigenProducto, Producto, TipoProducto, VidaUtil};
 use crate::tiempo::{Instante, ZonaHoraria};
 use crate::unidades::Gramos;
 
-/// Estado de una etiqueta o caja. `Vendida` queda reservada para el POS futuro;
-/// hoy solo se construye `Activa` (mismo patrón que los tipos de movimiento).
+/// Estado de una etiqueta o caja. `Extraviada` = declarada en un envío y no
+/// presente al recibir (D41): fuera de todo stock y de las alertas. `Vendida`
+/// queda reservada para el POS futuro (mismo patrón que los tipos de movimiento).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EstadoEtiqueta {
     Activa,
+    Extraviada,
     Vendida,
 }
 

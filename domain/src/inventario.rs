@@ -102,13 +102,14 @@ impl Cantidad {
     }
 }
 
-/// Tipo de movimiento. Extensible: `Recepcion` y `Venta` quedan reservados para
-/// las capas futuras que los posten; hoy solo se construye `Ajuste` (D26). La
-/// **reversión no es un tipo**: es el `EstadoMovimiento` del propio movimiento
-/// (toggle, sin apilar copias, D15/D27).
+/// Tipo de movimiento. Extensible: `Ajuste` lo postea el conteo manual (D26),
+/// `Envio` y `Recepcion` los postea la capacidad de envíos (D40) y `Venta`
+/// queda reservado para el POS futuro. La **reversión no es un tipo**: es el
+/// `EstadoMovimiento` del propio movimiento (toggle, sin apilar copias, D15/D27).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TipoMovimiento {
     Ajuste,
+    Envio,
     Recepcion,
     Venta,
 }

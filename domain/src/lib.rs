@@ -8,6 +8,7 @@ pub mod acceso;
 pub mod aprobacion;
 pub mod barcode;
 pub mod caja;
+pub mod envio;
 pub mod error;
 pub mod etiqueta;
 pub mod folio;
