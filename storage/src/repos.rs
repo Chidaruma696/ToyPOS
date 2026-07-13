@@ -8,12 +8,14 @@ use domain::acceso::{ContextoAcceso, Permiso};
 use domain::aprobacion::Aprobacion;
 use domain::barcode::Ean13;
 use domain::caja::{Corte, ResumenVentas, SesionCaja};
+use domain::etiqueta::{CajaEtiquetado, Etiqueta};
 use domain::gasto::Gasto;
 use domain::inventario::{Cantidad, MovimientoInventario};
+use domain::notificacion::{Notificacion, TipoNotificacion};
 use domain::precio::Nivel;
-use domain::producto::{OrigenProducto, Producto, TipoProducto};
+use domain::producto::{OrigenProducto, Producto, TipoProducto, VidaUtil};
 use domain::sucursal::{CodigoSucursal, Sucursal, TipoSucursal};
-use domain::tiempo::ZonaHoraria;
+use domain::tiempo::{Instante, ZonaHoraria};
 use domain::unidades::{Centavos, Gramos};
 use domain::usuario::{Rol, Usuario};
 use uuid::Uuid;
@@ -37,6 +39,8 @@ pub struct BorradorProducto {
     pub origen: OrigenProducto,
     pub codigo: AltaCodigo,
     pub peso_empaque: Option<Gramos>,
+    /// Vida útil en meses (D33); `None` = default de 9.
+    pub vida_util: Option<VidaUtil>,
 }
 
 /// Una entrada de la bitácora de auditoría (D11).
@@ -124,6 +128,14 @@ pub trait Catalogo {
         codigo: &str,
     ) -> Resultado<Option<Producto>>;
     async fn desactivar_producto(&self, ctx: &ContextoAcceso, id: Uuid) -> Resultado<()>;
+    /// Edita la vida útil (D33); los etiquetados futuros la usan, lo ya
+    /// emitido conserva su caducidad. Requiere `gestionar_productos`.
+    async fn fijar_vida_util(
+        &self,
+        ctx: &ContextoAcceso,
+        producto: Uuid,
+        vida: VidaUtil,
+    ) -> Resultado<()>;
 }
 
 /// Precios (`pricing`).
@@ -240,6 +252,70 @@ pub trait Inventario {
         producto: Uuid,
         sucursal: Uuid,
     ) -> Resultado<Vec<MovimientoInventario>>;
+}
+
+/// Etiquetado de producción (`labeling`). No toca existencias: matriz produce
+/// sin llevar stock propio (D34).
+#[allow(async_fn_in_trait)]
+pub trait Etiquetado {
+    /// Etiqueta una serie de pesadas de un `peso_variable`: una etiqueta
+    /// por-ítem por pesada, con discriminador antiduplicado (D31). Exige
+    /// `etiquetar` + alcance.
+    async fn etiquetar_pesadas(
+        &self,
+        ctx: &ContextoAcceso,
+        producto: Uuid,
+        sucursal: Uuid,
+        pesos: &[Gramos],
+    ) -> Resultado<Vec<Etiqueta>>;
+    /// Cierra una caja que agrupa etiquetas ya emitidas (mismo producto y
+    /// sucursal, activas y sin caja previa, D35).
+    async fn cerrar_caja_pesadas(
+        &self,
+        ctx: &ContextoAcceso,
+        etiquetas: &[Uuid],
+    ) -> Resultado<CajaEtiquetado>;
+    /// Cierra una caja de un `pieza` con la cantidad contenida (D35).
+    async fn cerrar_caja_pieza(
+        &self,
+        ctx: &ContextoAcceso,
+        producto: Uuid,
+        sucursal: Uuid,
+        cantidad: i64,
+    ) -> Resultado<CajaEtiquetado>;
+    /// Lookup local del barcode per-ítem (D31); `None` fuera del alcance.
+    async fn etiqueta_por_codigo(
+        &self,
+        ctx: &ContextoAcceso,
+        codigo: &str,
+    ) -> Resultado<Option<Etiqueta>>;
+    /// Las etiquetas agrupadas en una caja (N y peso total consultables).
+    async fn etiquetas_de_caja(&self, ctx: &ContextoAcceso, caja: Uuid)
+    -> Resultado<Vec<Etiqueta>>;
+    /// Barrido "por vencer" (D36): etiquetas y cajas activas en expendios a
+    /// ≤ 5 días de caducar (día en la zona de cada sucursal respecto a
+    /// `referencia`), agrupadas por producto × sucursal, notificadas a la
+    /// sucursal y a la matriz. Idempotente; **solo el actor `sistema`**.
+    /// Devuelve cuántas notificaciones emitió.
+    async fn barrer_por_vencer(&self, ctx: &ContextoAcceso, referencia: Instante)
+    -> Resultado<u64>;
+}
+
+/// Notificaciones del sistema a usuarios (`notifications` · D37).
+#[allow(async_fn_in_trait)]
+pub trait Notificaciones {
+    /// Emite una notificación a la bandeja de una sucursal (solo el `sistema`).
+    async fn emitir(
+        &self,
+        ctx: &ContextoAcceso,
+        tipo: TipoNotificacion,
+        mensaje: &str,
+        sucursal: Uuid,
+    ) -> Resultado<Notificacion>;
+    /// La bandeja de la sucursal; exige `ver_notificaciones` + alcance.
+    async fn bandeja(&self, ctx: &ContextoAcceso, sucursal: Uuid) -> Resultado<Vec<Notificacion>>;
+    /// Marca leída a nivel sucursal (idempotente, conserva la fila, D37).
+    async fn marcar_leida(&self, ctx: &ContextoAcceso, notificacion: Uuid) -> Resultado<()>;
 }
 
 /// Auditoría transversal (`organization-access` · D11).

@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS producto (
     codigo        TEXT UNIQUE,              -- EAN-13; NULL en peso-variable
     codigo_origen TEXT CHECK (codigo_origen IN ('Externo','Matriz')),
     peso_empaque  INTEGER,                  -- gramos, informativo
+    vida_util     INTEGER NOT NULL DEFAULT 9, -- meses calendáricos (D33)
     activo        INTEGER NOT NULL DEFAULT 1,
     updated_at    TEXT NOT NULL
 );
@@ -152,6 +153,61 @@ CREATE TABLE IF NOT EXISTS movimiento_inventario (
 );
 CREATE INDEX IF NOT EXISTS ix_movimiento_prod_suc ON movimiento_inventario (producto_id, sucursal_id);
 
+-- Cajas del etiquetado (D35): agrupan etiquetas por-ítem (peso_variable, cantidad
+-- NULL) o unidades idénticas (pieza). `caducidad` NULL en productos externos.
+CREATE TABLE IF NOT EXISTS caja_etiquetado (
+    id            TEXT PRIMARY KEY,
+    producto_id   TEXT NOT NULL REFERENCES producto(id),
+    sucursal_id   TEXT NOT NULL REFERENCES sucursal(id),
+    cantidad      INTEGER,
+    fecha_etiquetado TEXT NOT NULL,
+    caducidad     TEXT,                     -- fecha civil YYYY-MM-DD
+    estado        TEXT NOT NULL CHECK (estado IN ('Activa','Vendida')),
+    updated_at    TEXT NOT NULL
+);
+
+-- Etiquetas por-ítem (D31): identidad por etiqueta; el barcode (peso +
+-- discriminador) se resuelve por lookup local. `fecha_etiquetado` es interna y
+-- nunca se imprime (D32); `caducidad` es informativa, jamás bloquea.
+CREATE TABLE IF NOT EXISTS etiqueta (
+    id            TEXT PRIMARY KEY,
+    codigo        TEXT NOT NULL UNIQUE,     -- EAN-13 per-ítem (prefijo 21)
+    discriminador INTEGER NOT NULL,
+    producto_id   TEXT NOT NULL REFERENCES producto(id),
+    sucursal_id   TEXT NOT NULL REFERENCES sucursal(id),
+    caja_id       TEXT REFERENCES caja_etiquetado(id),
+    peso          INTEGER NOT NULL,         -- gramos (D6)
+    fecha_etiquetado TEXT NOT NULL,
+    caducidad     TEXT NOT NULL,            -- fecha civil YYYY-MM-DD
+    estado        TEXT NOT NULL CHECK (estado IN ('Activa','Vendida')),
+    updated_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_etiqueta_suc_cad
+    ON etiqueta (sucursal_id, caducidad) WHERE estado = 'Activa';
+CREATE INDEX IF NOT EXISTS ix_etiqueta_caja ON etiqueta (caja_id);
+
+-- Secuencia del discriminador per-ítem (módulo 10^5 con reintento, D31).
+CREATE TABLE IF NOT EXISTS discriminador_seq (
+    id        INTEGER PRIMARY KEY CHECK (id = 1),
+    siguiente INTEGER NOT NULL
+);
+
+-- Notificaciones del sistema a usuarios (D37): bandeja por sucursal, se marcan
+-- leídas por sucursal y nunca se borran. `grupo` es la clave de idempotencia
+-- del barrido "por vencer" (D36).
+CREATE TABLE IF NOT EXISTS notificacion (
+    id          TEXT PRIMARY KEY,
+    tipo        TEXT NOT NULL CHECK (tipo IN ('PorVencer')),
+    mensaje     TEXT NOT NULL,
+    sucursal_id TEXT NOT NULL REFERENCES sucursal(id),
+    grupo       TEXT,
+    creado      TEXT NOT NULL,
+    leida_en    TEXT,
+    updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_notificacion_bandeja ON notificacion (sucursal_id, creado);
+CREATE INDEX IF NOT EXISTS ix_notificacion_grupo ON notificacion (grupo);
+
 -- Bitácora append-only e inmutable (D11).
 CREATE TABLE IF NOT EXISTS bitacora (
     id         TEXT PRIMARY KEY,
@@ -166,6 +222,12 @@ CREATE TABLE IF NOT EXISTS bitacora (
 );
 CREATE INDEX IF NOT EXISTS ix_bitacora_entidad ON bitacora (entidad, entidad_id);
 "#;
+
+/// Columnas añadidas después del esquema inicial. **Idempotentes** por manejo
+/// del error: si la columna ya existe (base nueva, ya viene en el `CREATE
+/// TABLE`), el "duplicate column" se ignora al aplicar el esquema.
+pub const COLUMNAS_ADITIVAS: [&str; 1] =
+    ["ALTER TABLE producto ADD COLUMN vida_util INTEGER NOT NULL DEFAULT 9"];
 
 /// Disparadores que hacen la bitácora **inmutable** desde SQL (belt-and-suspenders
 /// sobre la inmutabilidad de la aplicación). Se ejecutan uno a uno porque llevan

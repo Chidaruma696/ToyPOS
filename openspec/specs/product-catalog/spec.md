@@ -11,7 +11,7 @@ El sistema SHALL clasificar cada producto por su **unidad de venta**: `peso_vari
 
 #### Scenario: Alta de producto peso-variable
 - **WHEN** se registra "pollo" como `peso_variable`
-- **THEN** el producto queda con unidad de venta kilogramo y elegible para etiquetado por peso (capacidad futura)
+- **THEN** el producto queda con unidad de venta kilogramo y elegible para etiquetado por peso (capacidad `labeling`)
 
 #### Scenario: Alta de producto pieza comprado
 - **WHEN** se registra "Nescafé" como `pieza` comprado a proveedor externo
@@ -65,3 +65,18 @@ El catálogo de productos SHALL ser **global** (único para toda la organizació
 #### Scenario: El alta de producto no crea existencias
 - **WHEN** se da de alta un producto en el catálogo global
 - **THEN** el producto existe para todas las sucursales pero su existencia en cada una es cero hasta que reciba un movimiento (ver capacidad `inventory`)
+
+### Requirement: Vida útil por producto
+Cada producto SHALL tener una **vida útil** expresada en **meses enteros**, con default de **9 meses** cuando no se captura. Editarla SHALL requerir el permiso de-sistema `gestionar_productos` y SHALL aceptar solo enteros positivos. La vida útil determina la caducidad calculada al etiquetar (capacidad `labeling`); cambiarla SHALL NO afectar etiquetas ya emitidas.
+
+#### Scenario: Alta sin capturar vida útil usa el default
+- **WHEN** se da de alta un producto sin indicar vida útil
+- **THEN** el producto queda con vida útil de 9 meses
+
+#### Scenario: Edición de vida útil con permiso
+- **WHEN** un usuario con `gestionar_productos` cambia la vida útil de un producto a 6 meses
+- **THEN** el producto queda con vida útil de 6 meses para los etiquetados futuros
+
+#### Scenario: Vida útil inválida se rechaza
+- **WHEN** se intenta fijar una vida útil de 0 o negativa
+- **THEN** el sistema rechaza la operación

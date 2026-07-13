@@ -17,7 +17,7 @@ pub use error::{ErrorAlmacen, Resultado};
 pub mod prelude {
     pub use crate::Almacen;
     pub use crate::repos::{
-        AltaCodigo, Auditoria, BorradorProducto, Caja, Catalogo, EntradaBitacora, Inventario,
-        Organizacion, Precios,
+        AltaCodigo, Auditoria, BorradorProducto, Caja, Catalogo, EntradaBitacora, Etiquetado,
+        Inventario, Notificaciones, Organizacion, Precios,
     };
 }

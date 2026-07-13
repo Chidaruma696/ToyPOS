@@ -89,6 +89,7 @@ async fn producto_pieza_externo(
             origen: OrigenProducto::Externo,
             codigo: AltaCodigo::Externo(Ean13::parse(gtin).unwrap()),
             peso_empaque: None,
+            vida_util: None,
         },
     )
     .await
@@ -485,6 +486,7 @@ async fn barcodes_matriz_validos_unicos_y_gtin_sin_colision() {
                     origen: OrigenProducto::Matriz,
                     codigo: AltaCodigo::GenerarMatriz,
                     peso_empaque: Some(domain::unidades::Gramos::new(500)),
+                    vida_util: None,
                 },
             )
             .await
@@ -506,6 +508,7 @@ async fn barcodes_matriz_validos_unicos_y_gtin_sin_colision() {
                 origen: OrigenProducto::Externo,
                 codigo: AltaCodigo::Externo(Ean13::parse("7501059224827").unwrap()),
                 peso_empaque: None,
+                vida_util: None,
             },
         )
         .await;
@@ -647,6 +650,7 @@ async fn gestion_requiere_sus_permisos() {
                 origen: OrigenProducto::Externo,
                 codigo: AltaCodigo::Externo(Ean13::parse("7501059224827").unwrap()),
                 peso_empaque: None,
+                vida_util: None,
             },
         )
         .await

@@ -45,6 +45,37 @@ pub enum UnidadVenta {
     Unidad,
 }
 
+/// Vida útil en **meses calendáricos enteros** (D33), siempre positiva. Con 9
+/// meses de default; determina la caducidad calculada al etiquetar (capacidad
+/// `labeling`) y cambiarla no reetiqueta lo ya emitido.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct VidaUtil(i64);
+
+impl VidaUtil {
+    pub const DEFAULT_MESES: i64 = 9;
+
+    pub fn nueva(meses: i64) -> Result<Self, ErrorDominio> {
+        if meses <= 0 {
+            return Err(ErrorDominio::Invalido(format!(
+                "la vida útil debe ser un entero positivo de meses: {meses}"
+            )));
+        }
+        Ok(VidaUtil(meses))
+    }
+
+    #[must_use]
+    pub const fn meses(self) -> i64 {
+        self.0
+    }
+}
+
+impl Default for VidaUtil {
+    fn default() -> Self {
+        VidaUtil(Self::DEFAULT_MESES)
+    }
+}
+
 /// Código de barras de un producto `pieza`, según su origen.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CodigoBarras {
@@ -74,6 +105,8 @@ pub struct Producto {
     pub codigo: Option<CodigoBarras>,
     /// Peso de empaque informativo (peso fijo); no interviene en el precio.
     pub peso_empaque: Option<Gramos>,
+    /// Vida útil en meses (D33); si no se captura al alta, queda el default.
+    pub vida_util: VidaUtil,
     pub activo: bool,
     pub actualizado: Instante,
 }
@@ -134,6 +167,7 @@ impl Producto {
             origen,
             codigo,
             peso_empaque,
+            vida_util: VidaUtil::default(),
             activo: true,
             actualizado: ahora,
         })
@@ -225,6 +259,28 @@ mod tests {
         )
         .unwrap();
         assert_eq!(p.peso_empaque, Some(Gramos::new(500)));
+    }
+
+    #[test]
+    fn vida_util_default_al_alta() {
+        let p = Producto::nuevo(
+            "pollo",
+            TipoProducto::PesoVariable,
+            OrigenProducto::Matriz,
+            None,
+            None,
+            ahora(),
+        )
+        .unwrap();
+        assert_eq!(p.vida_util, VidaUtil::default());
+        assert_eq!(p.vida_util.meses(), 9);
+    }
+
+    #[test]
+    fn vida_util_rechaza_cero_y_negativos() {
+        assert!(VidaUtil::nueva(0).is_err());
+        assert!(VidaUtil::nueva(-3).is_err());
+        assert_eq!(VidaUtil::nueva(6).unwrap().meses(), 6);
     }
 
     #[test]

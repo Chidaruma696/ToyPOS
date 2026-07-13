@@ -73,6 +73,7 @@ async fn producto_pieza(alm: &Almacen, admin: &ContextoAcceso, nombre: &str, gti
             origen: OrigenProducto::Externo,
             codigo: AltaCodigo::Externo(Ean13::parse(gtin).unwrap()),
             peso_empaque: None,
+            vida_util: None,
         },
     )
     .await
@@ -89,6 +90,7 @@ async fn producto_peso(alm: &Almacen, admin: &ContextoAcceso, nombre: &str) -> U
             origen: OrigenProducto::Matriz,
             codigo: AltaCodigo::Ninguno,
             peso_empaque: None,
+            vida_util: None,
         },
     )
     .await

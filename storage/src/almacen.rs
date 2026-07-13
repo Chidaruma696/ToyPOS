@@ -6,22 +6,28 @@ use std::collections::BTreeSet;
 use std::fmt::Display;
 use std::str::FromStr;
 
-use domain::acceso::{Alcance, ContextoAcceso, Permiso};
+use domain::acceso::{Actor, Alcance, ContextoAcceso, Permiso};
 use domain::aprobacion::{Aprobacion, EstadoAprobacion};
-use domain::barcode::{Ean13, PREFIJO_MATRIZ};
+use domain::barcode::{Ean13, MODULO_DISCRIMINADOR, PREFIJO_MATRIZ};
 use domain::caja::{Corte, EstadoSesion, ResumenVentas, SesionCaja};
 use domain::error::ErrorDominio;
+use domain::etiqueta::{CajaEtiquetado, EstadoEtiqueta, Etiqueta};
 use domain::folio::{Folio, TipoDocumento};
 use domain::gasto::Gasto;
 use domain::inventario::{
     Cantidad, EstadoMovimiento, Existencia, MovimientoInventario, TipoMovimiento,
 };
+use domain::notificacion::{Notificacion, TipoNotificacion};
 use domain::precio::{self, Nivel};
-use domain::producto::{CodigoBarras, OrigenProducto, Producto, TipoProducto, UnidadVenta};
+use domain::producto::{
+    CodigoBarras, OrigenProducto, Producto, TipoProducto, UnidadVenta, VidaUtil,
+};
 use domain::sucursal::{CodigoSucursal, Sucursal, TipoSucursal};
 use domain::tiempo::{Instante, ZonaHoraria};
 use domain::unidades::{Centavos, Gramos};
 use domain::usuario::{Credencial, Rol, Usuario};
+use jiff::Span;
+use jiff::civil::Date;
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions, SqliteRow};
 use sqlx::{Row, SqlitePool};
 use uuid::Uuid;
@@ -29,12 +35,12 @@ use uuid::Uuid;
 use crate::error::{ErrorAlmacen, Resultado};
 use crate::migraciones;
 use crate::repos::{
-    AltaCodigo, Auditoria, BorradorProducto, Caja, Catalogo, EntradaBitacora, Inventario,
-    Organizacion, Precios,
+    AltaCodigo, Auditoria, BorradorProducto, Caja, Catalogo, EntradaBitacora, Etiquetado,
+    Inventario, Notificaciones, Organizacion, Precios,
 };
 
 /// Todos los permisos: se otorgan al administrador inicial en el bootstrap.
-const TODOS_LOS_PERMISOS: [Permiso; 13] = [
+const TODOS_LOS_PERMISOS: [Permiso; 15] = [
     Permiso::Vender,
     Permiso::EditarPrecio,
     Permiso::RegistrarGasto,
@@ -43,12 +49,17 @@ const TODOS_LOS_PERMISOS: [Permiso; 13] = [
     Permiso::VerConciliacion,
     Permiso::AjustarInventario,
     Permiso::VerInventario,
+    Permiso::Etiquetar,
+    Permiso::VerNotificaciones,
     Permiso::AutoaprobarGasto,
     Permiso::GestionarUsuarios,
     Permiso::GestionarRoles,
     Permiso::GestionarSucursales,
     Permiso::GestionarProductos,
 ];
+
+/// Días de anticipación de la alerta "por vencer" (D36).
+const DIAS_ALERTA_POR_VENCER: i64 = 5;
 
 /// Almacén local: envuelve el pool de SQLite. Clonar comparte el pool (Arc).
 #[derive(Clone)]
@@ -83,6 +94,15 @@ impl Almacen {
         sqlx::raw_sql(migraciones::ESQUEMA)
             .execute(&self.pool)
             .await?;
+        for columna in migraciones::COLUMNAS_ADITIVAS {
+            if let Err(e) = sqlx::query(columna).execute(&self.pool).await {
+                let ya_existe = matches!(&e, sqlx::Error::Database(db)
+                    if db.message().contains("duplicate column"));
+                if !ya_existe {
+                    return Err(e.into());
+                }
+            }
+        }
         for trigger in migraciones::TRIGGERS {
             sqlx::query(trigger).execute(&self.pool).await?;
         }
@@ -363,6 +383,101 @@ fn estado_mov_de(s: &str) -> Resultado<EstadoMovimiento> {
     }
 }
 
+fn estado_eti_txt(e: EstadoEtiqueta) -> &'static str {
+    match e {
+        EstadoEtiqueta::Activa => "Activa",
+        EstadoEtiqueta::Vendida => "Vendida",
+    }
+}
+
+fn estado_eti_de(s: &str) -> Resultado<EstadoEtiqueta> {
+    match s {
+        "Activa" => Ok(EstadoEtiqueta::Activa),
+        "Vendida" => Ok(EstadoEtiqueta::Vendida),
+        otro => Err(corrupto(format!("estado de etiqueta desconocido: {otro}"))),
+    }
+}
+
+fn tipo_notif_txt(t: TipoNotificacion) -> &'static str {
+    match t {
+        TipoNotificacion::PorVencer => "PorVencer",
+    }
+}
+
+fn tipo_notif_de(s: &str) -> Resultado<TipoNotificacion> {
+    match s {
+        "PorVencer" => Ok(TipoNotificacion::PorVencer),
+        otro => Err(corrupto(format!(
+            "tipo de notificación desconocido: {otro}"
+        ))),
+    }
+}
+
+fn fecha_de(s: &str) -> Resultado<Date> {
+    s.parse().map_err(corrupto)
+}
+
+fn map_etiqueta(r: &SqliteRow) -> Resultado<Etiqueta> {
+    let caja: Option<String> = r.try_get("caja_id")?;
+    Ok(Etiqueta {
+        id: uuid_de(r.try_get("id")?)?,
+        codigo: Ean13::parse(r.try_get("codigo")?)?,
+        discriminador: r.try_get::<i64, _>("discriminador")? as u64,
+        producto: uuid_de(r.try_get("producto_id")?)?,
+        peso: Gramos::new(r.try_get("peso")?),
+        sucursal: uuid_de(r.try_get("sucursal_id")?)?,
+        caja: caja.map(|c| uuid_de(&c)).transpose()?,
+        fecha_etiquetado: inst_de(r.try_get("fecha_etiquetado")?)?,
+        caducidad: fecha_de(r.try_get("caducidad")?)?,
+        estado: estado_eti_de(r.try_get("estado")?)?,
+        actualizado: inst_de(r.try_get("updated_at")?)?,
+    })
+}
+
+fn map_notificacion(r: &SqliteRow) -> Resultado<Notificacion> {
+    let leida: Option<String> = r.try_get("leida_en")?;
+    Ok(Notificacion {
+        id: uuid_de(r.try_get("id")?)?,
+        tipo: tipo_notif_de(r.try_get("tipo")?)?,
+        mensaje: r.try_get("mensaje")?,
+        sucursal: uuid_de(r.try_get("sucursal_id")?)?,
+        creado: inst_de(r.try_get("creado")?)?,
+        leida_en: leida.map(|l| inst_de(&l)).transpose()?,
+        actualizado: inst_de(r.try_get("updated_at")?)?,
+    })
+}
+
+/// Zona horaria de una sucursal, con la conexión de la transacción.
+async fn zona_tx(conn: &mut sqlx::SqliteConnection, sucursal: Uuid) -> Resultado<ZonaHoraria> {
+    let row = sqlx::query("SELECT zona FROM sucursal WHERE id = ?")
+        .bind(sucursal.to_string())
+        .fetch_optional(conn)
+        .await?
+        .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("sucursal {sucursal}")))?;
+    ZonaHoraria::nueva(row.try_get("zona")?).map_err(Into::into)
+}
+
+async fn insertar_notificacion(
+    conn: &mut sqlx::SqliteConnection,
+    n: &Notificacion,
+    grupo: Option<&str>,
+) -> Resultado<()> {
+    sqlx::query(
+        "INSERT INTO notificacion (id, tipo, mensaje, sucursal_id, grupo, creado, leida_en, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, NULL, ?)",
+    )
+    .bind(n.id.to_string())
+    .bind(tipo_notif_txt(n.tipo))
+    .bind(&n.mensaje)
+    .bind(n.sucursal.to_string())
+    .bind(grupo)
+    .bind(inst_txt(n.creado))
+    .bind(inst_txt(n.actualizado))
+    .execute(conn)
+    .await?;
+    Ok(())
+}
+
 fn map_movimiento(r: &SqliteRow, unidad: UnidadVenta) -> Resultado<MovimientoInventario> {
     Ok(MovimientoInventario {
         id: uuid_de(r.try_get("id")?)?,
@@ -482,6 +597,7 @@ fn map_producto(r: &SqliteRow) -> Resultado<Producto> {
         origen,
         codigo,
         peso_empaque: peso.map(Gramos::new),
+        vida_util: VidaUtil::nueva(r.try_get("vida_util")?)?,
         activo: r.try_get::<i64, _>("activo")? != 0,
         actualizado: inst_de(r.try_get("updated_at")?)?,
     })
@@ -847,7 +963,10 @@ impl Catalogo for Almacen {
                 )?))
             }
         };
-        let p = Producto::nuevo(&b.nombre, b.tipo, b.origen, codigo, b.peso_empaque, ahora)?;
+        let mut p = Producto::nuevo(&b.nombre, b.tipo, b.origen, codigo, b.peso_empaque, ahora)?;
+        if let Some(vida) = b.vida_util {
+            p.vida_util = vida;
+        }
         let codigo_txt = p.codigo.as_ref().map(|c| c.ean().get().to_string());
         let codigo_origen = p.codigo.as_ref().map(|c| match c {
             CodigoBarras::Externo(_) => "Externo",
@@ -855,8 +974,8 @@ impl Catalogo for Almacen {
         });
 
         sqlx::query(
-            "INSERT INTO producto (id, nombre, tipo, origen, codigo, codigo_origen, peso_empaque, activo, updated_at) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)",
+            "INSERT INTO producto (id, nombre, tipo, origen, codigo, codigo_origen, peso_empaque, vida_util, activo, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)",
         )
         .bind(p.id.to_string())
         .bind(&p.nombre)
@@ -865,6 +984,7 @@ impl Catalogo for Almacen {
         .bind(codigo_txt.clone())
         .bind(codigo_origen)
         .bind(p.peso_empaque.map(Gramos::get))
+        .bind(p.vida_util.meses())
         .bind(inst_txt(ahora))
         .execute(&mut *tx)
         .await
@@ -920,6 +1040,42 @@ impl Catalogo for Almacen {
             id,
             Some("activo".into()),
             Some("inactivo".into()),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    async fn fijar_vida_util(
+        &self,
+        ctx: &ContextoAcceso,
+        producto: Uuid,
+        vida: VidaUtil,
+    ) -> Resultado<()> {
+        ctx.requiere(Permiso::GestionarProductos)?;
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let antes: i64 = sqlx::query("SELECT vida_util FROM producto WHERE id = ?")
+            .bind(producto.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("producto {producto}")))?
+            .try_get("vida_util")?;
+        sqlx::query("UPDATE producto SET vida_util = ?, updated_at = ? WHERE id = ?")
+            .bind(vida.meses())
+            .bind(inst_txt(ahora))
+            .bind(producto.to_string())
+            .execute(&mut *tx)
+            .await?;
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Modificar",
+            "producto",
+            producto,
+            Some(format!("vida_util {antes}")),
+            Some(format!("vida_util {}", vida.meses())),
         )
         .await?;
         tx.commit().await?;
@@ -1598,6 +1754,470 @@ impl Almacen {
             .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("producto {producto}")))?
             .try_get("tipo")?;
         Ok(tipo_prod_de(&tipo)?.unidad_venta())
+    }
+}
+
+// ================== impl Etiquetado ==================
+
+impl Almacen {
+    /// Siguiente discriminador per-ítem: secuencia persistida módulo 10⁵; si el
+    /// candidato colisiona con una etiqueta **activa**, avanza y reintenta (D31).
+    async fn discriminador_libre(conn: &mut sqlx::SqliteConnection) -> Resultado<u64> {
+        // Tope de reintentos: con 10⁵ valores, agotar el espacio significa esa
+        // cantidad de etiquetas activas del mismo módulo — se reporta, no se cuelga.
+        const INTENTOS: u64 = 10_000;
+        for _ in 0..INTENTOS {
+            let row = sqlx::query(
+                "INSERT INTO discriminador_seq (id, siguiente) VALUES (1, 1) \
+                 ON CONFLICT(id) DO UPDATE SET siguiente = siguiente + 1 RETURNING siguiente",
+            )
+            .fetch_one(&mut *conn)
+            .await?;
+            let crudo: i64 = row.try_get("siguiente")?;
+            let candidato = (crudo as u64) % MODULO_DISCRIMINADOR;
+            let ocupado = sqlx::query(
+                "SELECT 1 AS x FROM etiqueta WHERE discriminador = ? AND estado = 'Activa' LIMIT 1",
+            )
+            .bind(candidato as i64)
+            .fetch_optional(&mut *conn)
+            .await?;
+            if ocupado.is_none() {
+                return Ok(candidato);
+            }
+        }
+        Err(ErrorAlmacen::Conflicto(
+            "sin discriminadores libres para etiquetas".into(),
+        ))
+    }
+}
+
+async fn insertar_etiqueta(conn: &mut sqlx::SqliteConnection, e: &Etiqueta) -> Resultado<()> {
+    sqlx::query(
+        "INSERT INTO etiqueta (id, codigo, discriminador, producto_id, sucursal_id, caja_id, peso, fecha_etiquetado, caducidad, estado, updated_at) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .bind(e.id.to_string())
+    .bind(e.codigo.get())
+    .bind(e.discriminador as i64)
+    .bind(e.producto.to_string())
+    .bind(e.sucursal.to_string())
+    .bind(e.caja.map(|c| c.to_string()))
+    .bind(e.peso.get())
+    .bind(inst_txt(e.fecha_etiquetado))
+    .bind(e.caducidad.to_string())
+    .bind(estado_eti_txt(e.estado))
+    .bind(inst_txt(e.actualizado))
+    .execute(conn)
+    .await
+    .map_err(mapear_conflicto)?;
+    Ok(())
+}
+
+impl Etiquetado for Almacen {
+    async fn etiquetar_pesadas(
+        &self,
+        ctx: &ContextoAcceso,
+        producto: Uuid,
+        sucursal: Uuid,
+        pesos: &[Gramos],
+    ) -> Resultado<Vec<Etiqueta>> {
+        if pesos.is_empty() {
+            return Err(ErrorDominio::Invalido("no hay pesadas que etiquetar".into()).into());
+        }
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let p = producto_tx(&mut tx, producto).await?;
+        let zona = zona_tx(&mut tx, sucursal).await?;
+        let mut etiquetas = Vec::with_capacity(pesos.len());
+        for &peso in pesos {
+            let discriminador = Almacen::discriminador_libre(&mut tx).await?;
+            // El dominio valida permiso+alcance, tipo peso-variable y rango del
+            // peso, y congela la caducidad (D31/D32).
+            let e = Etiqueta::nueva(ctx, &p, sucursal, &zona, peso, discriminador, ahora)?;
+            insertar_etiqueta(&mut tx, &e).await?;
+            auditar(
+                &mut tx,
+                ahora,
+                ctx,
+                "Crear",
+                "etiqueta",
+                e.id,
+                None,
+                Some(format!("{} {}", e.codigo.get(), e.peso)),
+            )
+            .await?;
+            etiquetas.push(e);
+        }
+        tx.commit().await?;
+        Ok(etiquetas)
+    }
+
+    async fn cerrar_caja_pesadas(
+        &self,
+        ctx: &ContextoAcceso,
+        etiquetas: &[Uuid],
+    ) -> Resultado<CajaEtiquetado> {
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let mut cargadas = Vec::with_capacity(etiquetas.len());
+        for id in etiquetas {
+            let row = sqlx::query("SELECT * FROM etiqueta WHERE id = ?")
+                .bind(id.to_string())
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("etiqueta {id}")))?;
+            cargadas.push(map_etiqueta(&row)?);
+        }
+        let producto = cargadas
+            .first()
+            .map(|e| e.producto)
+            .ok_or_else(|| ErrorDominio::Invalido("la caja no tiene etiquetas".into()))?;
+        let p = producto_tx(&mut tx, producto).await?;
+        // El dominio valida permiso+alcance, homogeneidad, estado y caja previa (D35).
+        let caja = CajaEtiquetado::cerrar_pesadas(ctx, &p, &cargadas, ahora)?;
+        sqlx::query(
+            "INSERT INTO caja_etiquetado (id, producto_id, sucursal_id, cantidad, fecha_etiquetado, caducidad, estado, updated_at) \
+             VALUES (?, ?, ?, NULL, ?, ?, ?, ?)",
+        )
+        .bind(caja.id.to_string())
+        .bind(caja.producto.to_string())
+        .bind(caja.sucursal.to_string())
+        .bind(inst_txt(caja.fecha_etiquetado))
+        .bind(caja.caducidad.map(|c| c.to_string()))
+        .bind(estado_eti_txt(caja.estado))
+        .bind(inst_txt(caja.actualizado))
+        .execute(&mut *tx)
+        .await?;
+        for e in &cargadas {
+            sqlx::query("UPDATE etiqueta SET caja_id = ?, updated_at = ? WHERE id = ?")
+                .bind(caja.id.to_string())
+                .bind(inst_txt(ahora))
+                .bind(e.id.to_string())
+                .execute(&mut *tx)
+                .await?;
+        }
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Crear",
+            "caja_etiquetado",
+            caja.id,
+            None,
+            Some(format!("{} etiquetas", cargadas.len())),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(caja)
+    }
+
+    async fn cerrar_caja_pieza(
+        &self,
+        ctx: &ContextoAcceso,
+        producto: Uuid,
+        sucursal: Uuid,
+        cantidad: i64,
+    ) -> Resultado<CajaEtiquetado> {
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let p = producto_tx(&mut tx, producto).await?;
+        let zona = zona_tx(&mut tx, sucursal).await?;
+        // El dominio valida permiso+alcance, tipo pieza, cantidad positiva y la
+        // caducidad según el origen (D35).
+        let caja = CajaEtiquetado::cerrar_pieza(ctx, &p, sucursal, &zona, cantidad, ahora)?;
+        sqlx::query(
+            "INSERT INTO caja_etiquetado (id, producto_id, sucursal_id, cantidad, fecha_etiquetado, caducidad, estado, updated_at) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(caja.id.to_string())
+        .bind(caja.producto.to_string())
+        .bind(caja.sucursal.to_string())
+        .bind(caja.cantidad)
+        .bind(inst_txt(caja.fecha_etiquetado))
+        .bind(caja.caducidad.map(|c| c.to_string()))
+        .bind(estado_eti_txt(caja.estado))
+        .bind(inst_txt(caja.actualizado))
+        .execute(&mut *tx)
+        .await?;
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Crear",
+            "caja_etiquetado",
+            caja.id,
+            None,
+            Some(format!("{cantidad} pzas")),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(caja)
+    }
+
+    async fn etiqueta_por_codigo(
+        &self,
+        ctx: &ContextoAcceso,
+        codigo: &str,
+    ) -> Resultado<Option<Etiqueta>> {
+        let row = sqlx::query("SELECT * FROM etiqueta WHERE codigo = ?")
+            .bind(codigo)
+            .fetch_optional(&self.pool)
+            .await?;
+        match row {
+            None => Ok(None),
+            Some(r) => {
+                let e = map_etiqueta(&r)?;
+                Ok(if ctx.alcance.cubre(e.sucursal) {
+                    Some(e)
+                } else {
+                    None
+                })
+            }
+        }
+    }
+
+    async fn etiquetas_de_caja(
+        &self,
+        ctx: &ContextoAcceso,
+        caja: Uuid,
+    ) -> Resultado<Vec<Etiqueta>> {
+        let row = sqlx::query("SELECT sucursal_id FROM caja_etiquetado WHERE id = ?")
+            .bind(caja.to_string())
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("caja {caja}")))?;
+        exigir_alcance(ctx, uuid_de(row.try_get("sucursal_id")?)?)?;
+        let filas = sqlx::query("SELECT * FROM etiqueta WHERE caja_id = ? ORDER BY updated_at")
+            .bind(caja.to_string())
+            .fetch_all(&self.pool)
+            .await?;
+        filas.iter().map(map_etiqueta).collect()
+    }
+
+    async fn barrer_por_vencer(
+        &self,
+        ctx: &ContextoAcceso,
+        referencia: Instante,
+    ) -> Resultado<u64> {
+        if ctx.actor != Actor::Sistema {
+            return Err(ErrorDominio::Regla(
+                "el barrido por vencer es una operación del sistema".into(),
+            )
+            .into());
+        }
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let matriz: Uuid = {
+            let row = sqlx::query("SELECT id FROM sucursal WHERE tipo = 'Matriz'")
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| ErrorAlmacen::NoEncontrado("sucursal matriz".into()))?;
+            uuid_de(row.try_get("id")?)?
+        };
+        let expendios = sqlx::query(
+            "SELECT id, nombre, zona FROM sucursal WHERE tipo = 'Expendio' AND activo = 1",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let mut emitidas = 0u64;
+        for exp in &expendios {
+            let sucursal = uuid_de(exp.try_get("id")?)?;
+            let nombre_suc: String = exp.try_get("nombre")?;
+            let zona = ZonaHoraria::nueva(exp.try_get("zona")?)?;
+            // La ventana se corta en el día local de la sucursal (D21/D36);
+            // incluye lo ya vencido (sigue "por vencer" hasta que se atienda).
+            let limite = referencia
+                .dia_local(&zona)
+                .checked_add(Span::new().days(DIAS_ALERTA_POR_VENCER))
+                .map_err(corrupto)?
+                .to_string();
+
+            // Etiquetas por-ítem (peso_variable), agrupadas por producto.
+            let grupos = sqlx::query(
+                "SELECT e.producto_id, COUNT(*) AS n, SUM(e.peso) AS peso, MIN(e.caducidad) AS cad, p.nombre AS nombre \
+                 FROM etiqueta e JOIN producto p ON p.id = e.producto_id \
+                 WHERE e.sucursal_id = ? AND e.estado = 'Activa' AND e.caducidad <= ? \
+                 GROUP BY e.producto_id",
+            )
+            .bind(sucursal.to_string())
+            .bind(&limite)
+            .fetch_all(&mut *tx)
+            .await?;
+            for g in &grupos {
+                let n: i64 = g.try_get("n")?;
+                let peso: i64 = g.try_get("peso")?;
+                let nombre: String = g.try_get("nombre")?;
+                let mensaje = format!(
+                    "{n} etiquetas ({}) de {nombre} por vencer en {nombre_suc}",
+                    Gramos::new(peso)
+                );
+                emitidas += Almacen::notificar_grupo_por_vencer(
+                    &mut tx,
+                    ctx,
+                    ahora,
+                    uuid_de(g.try_get("producto_id")?)?,
+                    sucursal,
+                    matriz,
+                    g.try_get("cad")?,
+                    &mensaje,
+                )
+                .await?;
+            }
+
+            // Cajas de pieza (cantidad), solo las que llevan caducidad propia (D35).
+            let grupos = sqlx::query(
+                "SELECT c.producto_id, SUM(c.cantidad) AS n, MIN(c.caducidad) AS cad, p.nombre AS nombre \
+                 FROM caja_etiquetado c JOIN producto p ON p.id = c.producto_id \
+                 WHERE c.sucursal_id = ? AND c.estado = 'Activa' AND c.cantidad IS NOT NULL \
+                   AND c.caducidad IS NOT NULL AND c.caducidad <= ? \
+                 GROUP BY c.producto_id",
+            )
+            .bind(sucursal.to_string())
+            .bind(&limite)
+            .fetch_all(&mut *tx)
+            .await?;
+            for g in &grupos {
+                let n: i64 = g.try_get("n")?;
+                let nombre: String = g.try_get("nombre")?;
+                let mensaje = format!("{n} pzas {nombre} por vencer en {nombre_suc}");
+                emitidas += Almacen::notificar_grupo_por_vencer(
+                    &mut tx,
+                    ctx,
+                    ahora,
+                    uuid_de(g.try_get("producto_id")?)?,
+                    sucursal,
+                    matriz,
+                    g.try_get("cad")?,
+                    &mensaje,
+                )
+                .await?;
+            }
+        }
+        tx.commit().await?;
+        Ok(emitidas)
+    }
+}
+
+impl Almacen {
+    /// Emite la alerta de un grupo `producto × expendio` a **ambas** bandejas
+    /// (sucursal afectada y matriz), una sola vez por lote: la clave de grupo
+    /// incluye la caducidad más próxima, así el mismo lote no se re-notifica y
+    /// un lote nuevo sí (D36).
+    #[allow(clippy::too_many_arguments)] // firma del grupo: producto/sucursal/matriz/lote es intrínseca
+    async fn notificar_grupo_por_vencer(
+        tx: &mut sqlx::SqliteTransaction<'_>,
+        ctx: &ContextoAcceso,
+        ahora: Instante,
+        producto: Uuid,
+        sucursal: Uuid,
+        matriz: Uuid,
+        caducidad_min: String,
+        mensaje: &str,
+    ) -> Resultado<u64> {
+        let grupo = format!("por_vencer:{producto}:{sucursal}:{caducidad_min}");
+        let vigente = sqlx::query("SELECT 1 AS x FROM notificacion WHERE grupo = ? LIMIT 1")
+            .bind(&grupo)
+            .fetch_optional(&mut **tx)
+            .await?;
+        if vigente.is_some() {
+            return Ok(0);
+        }
+        let mut emitidas = 0u64;
+        for destino in [sucursal, matriz] {
+            let n =
+                Notificacion::emitir(ctx, TipoNotificacion::PorVencer, mensaje, destino, ahora)?;
+            insertar_notificacion(&mut *tx, &n, Some(&grupo)).await?;
+            auditar(
+                tx,
+                ahora,
+                ctx,
+                "Crear",
+                "notificacion",
+                n.id,
+                None,
+                Some(mensaje.to_string()),
+            )
+            .await?;
+            emitidas += 1;
+        }
+        Ok(emitidas)
+    }
+}
+
+// ================== impl Notificaciones ==================
+
+impl Notificaciones for Almacen {
+    async fn emitir(
+        &self,
+        ctx: &ContextoAcceso,
+        tipo: TipoNotificacion,
+        mensaje: &str,
+        sucursal: Uuid,
+    ) -> Resultado<Notificacion> {
+        let ahora = Instante::ahora();
+        // El dominio exige actor `sistema` y mensaje no vacío (D37).
+        let n = Notificacion::emitir(ctx, tipo, mensaje, sucursal, ahora)?;
+        let mut tx = self.pool.begin().await?;
+        insertar_notificacion(&mut tx, &n, None).await?;
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Crear",
+            "notificacion",
+            n.id,
+            None,
+            Some(n.mensaje.clone()),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(n)
+    }
+
+    async fn bandeja(&self, ctx: &ContextoAcceso, sucursal: Uuid) -> Resultado<Vec<Notificacion>> {
+        ctx.requiere_en(Permiso::VerNotificaciones, sucursal)?;
+        let filas = sqlx::query("SELECT * FROM notificacion WHERE sucursal_id = ? ORDER BY creado")
+            .bind(sucursal.to_string())
+            .fetch_all(&self.pool)
+            .await?;
+        filas.iter().map(map_notificacion).collect()
+    }
+
+    async fn marcar_leida(&self, ctx: &ContextoAcceso, notificacion: Uuid) -> Resultado<()> {
+        let ahora = Instante::ahora();
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT * FROM notificacion WHERE id = ?")
+            .bind(notificacion.to_string())
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| ErrorAlmacen::NoEncontrado(format!("notificación {notificacion}")))?;
+        let mut n = map_notificacion(&row)?;
+        ctx.requiere_en(Permiso::VerNotificaciones, n.sucursal)?;
+        if n.leida() {
+            // Idempotente: conserva la marca original y no falla (D37).
+            return Ok(());
+        }
+        n.marcar_leida(ahora);
+        sqlx::query("UPDATE notificacion SET leida_en = ?, updated_at = ? WHERE id = ?")
+            .bind(n.leida_en.map(inst_txt))
+            .bind(inst_txt(ahora))
+            .bind(notificacion.to_string())
+            .execute(&mut *tx)
+            .await?;
+        auditar(
+            &mut tx,
+            ahora,
+            ctx,
+            "Modificar",
+            "notificacion",
+            notificacion,
+            Some("no leída".into()),
+            Some("leída".into()),
+        )
+        .await?;
+        tx.commit().await?;
+        Ok(())
     }
 }
 

@@ -11,10 +11,21 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ErrorDominio;
+use crate::unidades::Gramos;
 
 /// Prefijo interno por defecto para los barcodes acuñados por matriz (`2`
 /// reservado por GS1 a circulación restringida in-store).
 pub const PREFIJO_MATRIZ: &str = "200";
+
+/// Prefijo interno de las etiquetas **per-ítem** de báscula (D31): otra clase
+/// de código que el barcode estable de producto, sin colisión con `200…`.
+pub const PREFIJO_ETIQUETA: &str = "21";
+
+/// Espacio del discriminador per-ítem: 5 dígitos (secuencia módulo 10⁵, D31).
+pub const MODULO_DISCRIMINADOR: u64 = 100_000;
+
+/// Peso máximo codificable en una etiqueta per-ítem: 5 dígitos de gramos.
+pub const MAX_PESO_ETIQUETA_G: i64 = 99_999;
 
 /// Un EAN-13 válido (13 dígitos, dígito verificador correcto).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -60,6 +71,38 @@ impl Ean13 {
         let digitos = Self::digitos(&base);
         let verificador = Self::verificador(&digitos);
         Ok(Ean13(format!("{base}{verificador}")))
+    }
+
+    /// Genera el EAN-13 **per-ítem** de una etiqueta de báscula (D31): prefijo
+    /// `21` + discriminador (5 dígitos) + peso en gramos (5 dígitos) +
+    /// verificador. El producto **no** viaja en el código: se resuelve por
+    /// lookup local contra la etiqueta persistida.
+    pub fn generar_etiqueta(discriminador: u64, peso: Gramos) -> Result<Self, ErrorDominio> {
+        if discriminador >= MODULO_DISCRIMINADOR {
+            return Err(ErrorDominio::Invalido(format!(
+                "discriminador fuera del espacio de 5 dígitos: {discriminador}"
+            )));
+        }
+        let g = peso.get();
+        if g <= 0 || g > MAX_PESO_ETIQUETA_G {
+            return Err(ErrorDominio::Invalido(format!(
+                "peso fuera de rango para etiqueta (1–{MAX_PESO_ETIQUETA_G} g): {g}"
+            )));
+        }
+        let base = format!("{PREFIJO_ETIQUETA}{discriminador:05}{g:05}");
+        let digitos = Self::digitos(&base);
+        let verificador = Self::verificador(&digitos);
+        Ok(Ean13(format!("{base}{verificador}")))
+    }
+
+    /// Si el código es una etiqueta per-ítem (prefijo `21`), extrae su
+    /// `(discriminador, peso)`; `None` para cualquier otra clase de código.
+    #[must_use]
+    pub fn decodificar_etiqueta(&self) -> Option<(u64, Gramos)> {
+        let cuerpo = self.0.strip_prefix(PREFIJO_ETIQUETA)?;
+        let discriminador = cuerpo[..5].parse().ok()?;
+        let peso = cuerpo[5..10].parse().ok()?;
+        Some((discriminador, Gramos::new(peso)))
     }
 
     #[must_use]
@@ -130,5 +173,35 @@ mod tests {
     fn secuencia_fuera_de_rango_se_rechaza() {
         // prefijo "200" deja 9 dígitos de cuerpo → 10^9 combinaciones
         assert!(Ean13::generar_matriz("200", 1_000_000_000).is_err());
+    }
+
+    #[test]
+    fn etiqueta_per_item_valida_y_decodable() {
+        let e = Ean13::generar_etiqueta(42, Gramos::new(1250)).unwrap();
+        assert_eq!(e.get().len(), 13);
+        assert!(e.get().starts_with(PREFIJO_ETIQUETA));
+        // se re-valida como EAN-13 legítimo y devuelve exactamente lo codificado
+        assert!(Ean13::parse(e.get()).is_ok());
+        assert_eq!(e.decodificar_etiqueta(), Some((42, Gramos::new(1250))));
+    }
+
+    #[test]
+    fn etiqueta_no_colisiona_con_barcode_de_producto() {
+        let producto = Ean13::generar_matriz(PREFIJO_MATRIZ, 4_212_500).unwrap();
+        // un código de producto (200…) jamás decodifica como etiqueta per-ítem (21…)
+        assert_eq!(producto.decodificar_etiqueta(), None);
+    }
+
+    #[test]
+    fn etiqueta_rechaza_peso_fuera_de_rango() {
+        assert!(Ean13::generar_etiqueta(1, Gramos::new(0)).is_err());
+        assert!(Ean13::generar_etiqueta(1, Gramos::new(-5)).is_err());
+        assert!(Ean13::generar_etiqueta(1, Gramos::new(100_000)).is_err());
+        assert!(Ean13::generar_etiqueta(1, Gramos::new(99_999)).is_ok());
+    }
+
+    #[test]
+    fn etiqueta_rechaza_discriminador_fuera_de_espacio() {
+        assert!(Ean13::generar_etiqueta(100_000, Gramos::new(500)).is_err());
     }
 }
