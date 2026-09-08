@@ -176,7 +176,7 @@ async fn main() -> storage::Resultado<()> {
     let admin = alm.autenticar("admin", "cambiame").await?;
 
     // Un expendio con su código (prefijará sus folios) y su zona.
-    let snj = alm
+    let sro = alm
         .crear_sucursal(&admin, TipoSucursal::Expendio, CodigoSucursal::nueva("SRO")?, "Santa Rosa", ZonaHoraria::default())
         .await?;
 
@@ -200,12 +200,12 @@ async fn main() -> storage::Resultado<()> {
     let caja = alm.cerrar_caja_pesadas(&admin, &ids).await?;
 
     // Surtido: la matriz manda, el expendio recibe lo que llegó.
-    let envio = alm.preparar_envio(&admin, matriz.id, snj.id, &[caja.id], &[]).await?; // folio MATE1
+    let envio = alm.preparar_envio(&admin, matriz.id, sro.id, &[caja.id], &[]).await?; // folio MATE1
     alm.marcar_enviado(&admin, envio.id).await?;
     alm.recibir_envio(&admin, envio.id, &[caja.id]).await?;
 
     // Aquí nace el stock del sistema: 3 480 g en Santa Rosa, cero en matriz.
-    println!("{}", alm.existencia(&admin, pollo.id, snj.id).await?.magnitud()); // 3480
+    println!("{}", alm.existencia(&admin, pollo.id, sro.id).await?.magnitud()); // 3480
     Ok(())
 }
 ```
