@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn codigo_normaliza_a_mayusculas() {
-        assert_eq!(CodigoSucursal::nueva("snj").unwrap().get(), "SRO");
+        assert_eq!(CodigoSucursal::nueva("sro").unwrap().get(), "SRO");
     }
 
     #[test]
