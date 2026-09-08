@@ -1,167 +1,167 @@
-[🇪🇸 Español](README.es.md)
+[🇬🇧 English](README.en.md)
 
 <div align="center">
   <br/>
 
 # ToyPOS
 
-**帳 · Multi-branch point of sale for a headquarters → outlets operation, written in Rust.**
+**帳 · Punto de venta multi-sucursal para una operación matriz → expendios, escrito en Rust.**
 
 <br/>
 
-![Rust 2024](https://img.shields.io/badge/rust-edition%202024-b7410e?style=for-the-badge&logo=rust&logoColor=white)
+![Rust 2024](https://img.shields.io/badge/rust-edición%202024-b7410e?style=for-the-badge&logo=rust&logoColor=white)
 ![SQLite](https://img.shields.io/badge/sqlite-local--first-003b57?style=for-the-badge&logo=sqlite&logoColor=white)
 [![CI](https://img.shields.io/github/actions/workflow/status/Chidaruma696/ToyPOS/ci.yml?branch=master&style=for-the-badge&label=fmt%20%C2%B7%20clippy%20%C2%B7%20test)](https://github.com/Chidaruma696/ToyPOS/actions)
-![MIT License](https://img.shields.io/badge/license-MIT-1b150d?style=for-the-badge)
+![Licencia MIT](https://img.shields.io/badge/licencia-MIT-1b150d?style=for-the-badge)
 
 <br/>
 
-*Pure domain · scope isolation · immutable audit log · integers end to end · no `unwrap` in production*
+*Dominio puro · aislamiento por alcance · bitácora inmutable · enteros de punta a punta · sin `unwrap` en producción*
 
 </div>
 
 ---
 
 > [!NOTE]
-> **Abandoned project, published in case it is useful to someone.** There is no business behind it and no real data: the branches, products and figures in the specs and tests are examples. It stopped at the **core** stage: the domain model and the data layer exist, are tested and pass CI with `clippy -D warnings`. There is still **no user interface** (no labeling screen, no register, no dashboard), no sales, and no synchronization. Read the [project status](#-project-status) before getting your hopes up.
+> **Proyecto descartado y publicado por si le sirve a alguien.** No hay un negocio detrás ni datos reales: las sucursales, productos y cifras de las specs y pruebas son ejemplos. Se quedó en fase de **núcleo**: el modelo de dominio y la capa de datos existen, están probados y pasan CI con `clippy -D warnings`. Todavía **no hay interfaz** (ni pantalla de etiquetado, ni caja, ni panel), ni venta, ni sincronización. Lee el [estado del proyecto](#-estado-del-proyecto) antes de hacerte ilusiones.
 
 <br/>
 
-## 🏪 What it is
+## 🏪 Qué es
 
-ToyPOS is designed for a company that **produces, packs and sells food by weight and by piece** from a **headquarters** to several affiliated **outlets**. Headquarters labels what it produces (Torrey scale, frozen and vacuum-packed product), puts it in boxes and ships it; the outlet receives it, sells it and balances its register every day.
+ToyPOS está pensado para una empresa que **produce, empaca y vende alimento por peso y por pieza** desde una **matriz** hacia varios **expendios** afiliados. La matriz etiqueta lo que produce (báscula Torrey, producto congelado y al vacío), lo mete en cajas y lo manda; el expendio lo recibe, lo vende y cuadra su caja cada día.
 
-Three typical wounds of systems like this, which ToyPOS closes **by design**, not by discipline:
+Tres heridas típicas de los sistemas de este tipo, que ToyPOS cierra **por diseño**, no por disciplina:
 
-| 🩹 Wound | 🛠️ How ToyPOS closes it |
+| 🩹 Herida | 🛠️ Cómo la cierra ToyPOS |
 | --- | --- |
-| Someone throws the inventory off and nobody can prove who it was | **Append-only, immutable audit log** at the single data-access point, with SQL triggers that prevent editing or deleting it. Every write has an actor, either human or `sistema` |
-| A server in another time zone stamps the time: the log says 14:56 when it was 10:00 | Every instant is captured **in UTC on the node** and displayed in each branch's **IANA time zone**. The "day" of a register close is the local day of its branch |
-| Grams get rounded to two decimals and the physical count never matches | **Integers end to end**: grams for weight, cents for money, never a `float`. The same integer travels from the scale to the cash count |
+| Alguien desajusta el inventario y nadie puede probar quién fue | **Bitácora append-only e inmutable** en el único punto de acceso a datos, con disparadores SQL que impiden editarla o borrarla. Toda escritura tiene actor, humano o `sistema` |
+| Un servidor en otro huso sella la hora: el log dice 14:56 cuando eran las 10:00 | Todo instante se captura **en UTC en el nodo** y se presenta en la **zona IANA de cada sucursal**. El "día" de un corte es el día local de su sucursal |
+| Los gramos se redondean a dos decimales y el cuadre físico nunca coincide | **Enteros de punta a punta**: gramos para peso, centavos para dinero, jamás un `float`. El mismo entero viaja de la báscula al arqueo |
 
 <br/>
 
-## 🧭 Principles
+## 🧭 Principios
 
-Every decision in the project goes through four filters, and each one is written down together with its discarded alternative in `openspec/` (44 decisions so far, D1–D44):
+Cada decisión del proyecto pasa por cuatro filtros, y cada una queda escrita con su alternativa descartada en `openspec/` (hoy van 44 decisiones, D1–D44):
 
-- **KISS** — the simplest solution that works; if a piece can be removed and the system still complies, it is removed.
-- **DRY** — every rule lives exactly once, in the `domain` crate. The three future front ends call it; they do not reimplement it.
-- **YAGNI** — only what has a real consumer gets built. The "reserved" types (`Venta`, `Vendida`) exist as enum variants with no flow behind them.
-- **Kanso (簡素)** — simplicity by elimination in the future interfaces: one screen, one primary action, zero noise.
+- **KISS** — la solución más simple que funcione; si una pieza se puede quitar y sigue cumpliendo, se quita.
+- **DRY** — cada regla vive una sola vez, en el crate `domain`. Las tres caras futuras la invocan, no la reimplementan.
+- **YAGNI** — solo se construye lo que tiene un consumidor real. Los tipos "reservados" (`Venta`, `Vendida`) existen como variantes de enum sin flujo detrás.
+- **Kanso (簡素)** — simplicidad por eliminación en las interfaces futuras: una pantalla, una acción primaria, cero ruido.
 
 <br/>
 
-## 🗺️ Capabilities
+## 🗺️ Capacidades
 
-Nine capabilities specified in [OpenSpec](https://github.com/Fission-AI/OpenSpec) (`Requirement` / `Scenario` format), implemented and archived across four changes:
+Nueve capacidades especificadas en [OpenSpec](https://github.com/Fission-AI/OpenSpec) (formato `Requirement` / `Scenario`), implementadas y archivadas en cuatro cambios:
 
-| Capability | What it guarantees | Change |
+| Capacidad | Qué garantiza | Cambio |
 | --- | --- | --- |
-| 🏢 `organization-access` | A single headquarters and outlets with an immutable **code** and a time zone; users with an argon2 password validated **without network access**; **RBAC with atomic permissions** in roles that can be edited live; the user's **scope** as isolation; a cross-cutting audit log; bootstrap of an empty system | `foundation-core` |
-| 📦 `product-catalog` | Global catalog governed by headquarters. Products typed by **sales unit** (`peso_variable` / `pieza`) with a separate **origin** (headquarters / external). Headquarters **mints its own EAN-13** for what it produces; purchased products carry their own GTIN. Shelf life in months (default 9) | `foundation-core` |
-| 💲 `pricing` | Price per `product × branch × tier` (retail / mid-wholesale / wholesale). Set by the admin without approval; can be **copied** between branches; a product without a retail price is **frozen** (cannot be sold) | `foundation-core` |
-| ✅ `authorization-workflow` | Every expense is born **pending**; it is resolved by an administrative authority with **segregation of duties**; rejection and cancellation carry a reason; final states are immutable | `foundation-core` |
-| 💵 `cash-management` | One register per branch: it is **opened** by declaring the float and **closed blind** (the cashier does not see the expected amount). Only authorized expenses are subtracted; the system shows the difference and **does not penalize**. A closed register session is **immutable**; an expense resolved late is reconciled without rewriting it. Human-readable **folios** per branch and type | `foundation-core` |
-| 📊 `inventory` | Stock per `product × branch` in the product's natural unit, kept as an append-only **movement ledger** with a materialized balance. **Absolute** adjustment with a reason, `aplicado ⇄ revertido` reversal, never negative | `inventory-per-branch` |
-| 🏷️ `labeling` | **Per-item** label for variable weight (EAN-13 with weight + anti-duplicate discriminator, resolved by local lookup), box with quantity for pieces, expiry date **frozen** at labeling time, automatic **"about to expire"** alert at 5 days in outlets | `labeling-expiry` |
-| 🔔 `notifications` | Per-branch inbox, emitted only by the `sistema`, non-blocking, marked as read locally, never deleted | `labeling-expiry` |
-| 🚚 `shipments` | **Shipment** with a folio and a `preparado → enviado → recibido` cycle, no approval needed. One end is always headquarters. The contents are boxes and labels with identity; receipt records **what actually arrived**: missing items are marked **lost** and the discrepancy is notified | `branch-shipments` |
+| 🏢 `organization-access` | Matriz única y expendios con **código** inmutable y zona horaria; usuarios con contraseña argon2 validada **sin red**; **RBAC de permisos atómicos** en roles editables en caliente; el **alcance** del usuario como aislamiento; bitácora transversal; bootstrap del sistema vacío | `foundation-core` |
+| 📦 `product-catalog` | Catálogo global gobernado por matriz. Producto tipado por **unidad de venta** (`peso_variable` / `pieza`) con **origen** aparte (matriz / externo). Matriz **acuña su propio EAN-13** para lo que produce; los comprados traen su GTIN. Vida útil en meses (default 9) | `foundation-core` |
+| 💲 `pricing` | Precio por `producto × sucursal × nivel` (menudeo / medio mayoreo / mayoreo). Lo fija el admin sin aprobación; se **copia** entre sucursales; un producto sin precio de menudeo está **congelado** (no se vende) | `foundation-core` |
+| ✅ `authorization-workflow` | Todo gasto nace **pendiente**; lo resuelve una autoridad administrativa con **segregación de deberes**; rechazo y cancelación llevan motivo; los estados finales son inmutables | `foundation-core` |
+| 💵 `cash-management` | Una caja por sucursal: se **abre** declarando fondo y se **cierra a ciegas** (el cajero no ve el esperado). Solo los gastos autorizados restan; el sistema muestra la diferencia y **no sanciona**. El corte cerrado es **inmutable**; un gasto resuelto tarde se concilia sin reescribirlo. **Folios** legibles por sucursal y tipo | `foundation-core` |
+| 📊 `inventory` | Existencia por `producto × sucursal` en la unidad natural del producto, como **ledger de movimientos** append-only con saldo materializado. Ajuste **absoluto** con motivo, reversión `aplicado ⇄ revertido`, jamás negativo | `inventory-per-branch` |
+| 🏷️ `labeling` | Etiqueta **por-ítem** para peso variable (EAN-13 con peso + discriminador antiduplicado, resuelto por lookup local), caja con cantidad para pieza, caducidad **congelada** al etiquetar, alerta automática **"por vencer"** a 5 días en expendios | `labeling-expiry` |
+| 🔔 `notifications` | Bandeja por sucursal, emitida solo por el `sistema`, no bloqueante, se marca leída a nivel local, nunca se borra | `labeling-expiry` |
+| 🚚 `shipments` | **Envío** con folio y ciclo `preparado → enviado → recibido`, sin aprobación. Un extremo siempre es la matriz. El contenido son cajas y etiquetas con identidad; la recepción registra **lo real**: los faltantes quedan **extraviados** y se notifica la discrepancia | `branch-shipments` |
 
 <br/>
 
-## 🚚 How goods travel
+## 🚚 Cómo viaja la mercancía
 
 ```mermaid
 flowchart LR
-    subgraph M["🏭 Headquarters (no stock of its own)"]
-        P[Weighing on the scale] -->|per-item EAN-13<br/>weight + discriminator| E[Label]
-        E --> C[Closed box]
-        C --> EN[Shipment MATE1<br/>prepared → shipped]
+    subgraph M["🏭 Matriz (sin stock propio)"]
+        P[Pesada en báscula] -->|EAN-13 per-ítem<br/>peso + discriminador| E[Etiqueta]
+        E --> C[Caja cerrada]
+        C --> EN[Envío MATE1<br/>preparado → enviado]
     end
-    EN -->|receive: what arrived| R
-    subgraph X["🏬 Outlet"]
-        R[Receipt] -->|receipt movement| S[(Stock)]
-        R -.->|missing| L[Lost]
-        S --> A{{"About-to-expire alert<br/>≤ 5 days"}}
+    EN -->|recibir: lo que llegó| R
+    subgraph X["🏬 Expendio"]
+        R[Recepción] -->|movimiento recepcion| S[(Existencia)]
+        R -.->|faltantes| L[Extraviada]
+        S --> A{{"Alerta por vencer<br/>≤ 5 días"}}
     end
-    L -.->|notification| N[Headquarters inbox]
+    L -.->|notificación| N[Bandeja de matriz]
     A --> N
-    A --> NX[Outlet inbox]
+    A --> NX[Bandeja del expendio]
 ```
 
-Three decisions explain the diagram:
+Tres decisiones explican el dibujo:
 
-- **Headquarters carries no stock** (D34). Labeling does not move inventory; the system's stock **is born on receipt** at the outlet. What nobody counts physically is not made up.
-- **Effects are asymmetric** (D40). A restock posts the inbound movement on receipt; a return posts the outbound movement on shipping, subject to non-negativity. Headquarters never posts.
-- **What actually arrived is what gets received** (D41). The receiver confirms whole boxes and loose labels one by one; whatever did not arrive is marked `extraviada`, outside all stock and all alerts, and management is informed.
+- **La matriz no lleva stock** (D34). Etiquetar no mueve inventario; el stock del sistema **nace al recibir** en el expendio. Lo que nadie cuenta físicamente no se inventa.
+- **Los efectos son asimétricos** (D40). Un surtido postea la entrada al recibir; una devolución postea la salida al enviar, sujeta a no-negatividad. La matriz jamás postea.
+- **Se recibe lo real** (D41). El receptor confirma cajas enteras y etiquetas sueltas una a una; lo que no llegó queda `extraviada`, fuera de todo stock y de toda alerta, y la administración se entera.
 
 <br/>
 
-## 🧱 Architecture
+## 🧱 Arquitectura
 
 ```
 ToyPOS
-├── domain/      Pure entities and rules, no I/O. Every rule lives here exactly once.
-│   ├── acceso      Permission (what) × Scope (where) → ContextoAcceso
-│   ├── unidades    Centavos and Gramos: integers, never float
-│   ├── tiempo      UTC instant on the node, IANA ZonaHoraria, the local "day"
-│   ├── folio       {code}{type}{sequence}: SROC56, SROG204, MATE1
+├── domain/      Entidades y reglas puras, sin I/O. Aquí vive cada regla una sola vez.
+│   ├── acceso      Permiso (qué) × Alcance (dónde) → ContextoAcceso
+│   ├── unidades    Centavos y Gramos: enteros, nunca float
+│   ├── tiempo      Instante UTC del nodo, ZonaHoraria IANA, "el día" local
+│   ├── folio       {código}{tipo}{consecutivo}: SROC56, SROG204, MATE1
 │   ├── producto · barcode · precio · inventario
 │   ├── caja · gasto · aprobacion
 │   └── etiqueta · notificacion · envio
-├── storage/     SQLite via sqlx. The SINGLE data-access point.
-│   ├── repos       Backend-agnostic traits: Organizacion, Catalogo, Precios, Caja,
+├── storage/     SQLite vía sqlx. Punto ÚNICO de acceso a datos.
+│   ├── repos       Traits agnósticos: Organizacion, Catalogo, Precios, Caja,
 │   │               Inventario, Etiquetado, Envios, Notificaciones, Auditoria
-│   ├── almacen     The backend: scope and audit log are applied here on every mutation
-│   ├── migraciones Sync-ready schema (uuid, updated_at, no physical deletes) + triggers
-│   └── tests/      42 integration tests on temporary databases
-└── openspec/    Current specs + archived changes (proposal · design · tasks)
+│   ├── almacen     El backend: aquí se aplican alcance y bitácora en cada mutación
+│   ├── migraciones Esquema sync-ready (uuid, updated_at, sin borrado físico) + triggers
+│   └── tests/      42 pruebas de integración sobre bases temporales
+└── openspec/    Specs vigentes + cambios archivados (proposal · design · tasks)
 ```
 
-### The gate
+### La reja
 
-Every operation receives a `ContextoAcceso { actor, permisos, alcance }`. The domain decides **what** it may do (`requiere_en(Permiso::Enviar, origen)`) and the store filters **where** it may look. Since everything goes through the same place, the audit log is written **in the same transaction** as every mutation: there is no code path that writes without being attributed.
+Toda operación recibe un `ContextoAcceso { actor, permisos, alcance }`. El dominio decide **qué** puede hacer (`requiere_en(Permiso::Enviar, origen)`) y el almacén filtra **dónde** puede mirar. Como todo pasa por el mismo lugar, la bitácora se escribe **en la misma transacción** que cada mutación: no existe una ruta que escriba sin quedar atribuida.
 
 ```mermaid
 flowchart TB
-    UI[Future front end<br/>Tauri + Vue] -->|ContextoAcceso| R[Repo traits]
-    R --> D[domain: pure rules<br/>permission · transition · unit · reason]
+    UI[Cara futura<br/>Tauri + Vue] -->|ContextoAcceso| R[Traits de repos]
+    R --> D[domain: reglas puras<br/>permiso · transición · unidad · motivo]
     D --> A[(almacen · SQLite)]
-    A -->|same transaction| B[[audit log<br/>append-only, triggers]]
-    A --> S[(materialized balance)]
-    A --> L[(movement ledger)]
+    A -->|misma transacción| B[[bitácora<br/>append-only, triggers]]
+    A --> S[(saldo materializado)]
+    A --> L[(ledger de movimientos)]
 ```
 
-### Sync-ready without sync
+### Sync-ready sin sync
 
-Every entity is born with a `uuid`, an `updated_at` in the node's UTC and soft deletion. There is no synchronization engine today: it is a future change toward Supabase, and the schema will not need to migrate to receive it. The SQLite pool has **a single connection**: SQLite serializes writes anyway, and this way the balance read, the non-negativity check and the write happen with no window between them.
+Cada entidad nace con `uuid`, `updated_at` en UTC del nodo y borrado lógico. Hoy no hay motor de sincronización: es un cambio futuro hacia Supabase, y el esquema ya no necesitará migrar para recibirlo. El pool de SQLite tiene **una sola conexión**: SQLite serializa las escrituras de todos modos, y así la lectura de saldo, la validación de no-negatividad y la escritura ocurren sin ventana entre ellas.
 
 <br/>
 
-## 📐 Decisions that define the system
+## 📐 Decisiones que definen el sistema
 
-All 44 decisions are in `openspec/changes/archive/*/design.md`, each with its rationale and its discarded alternative. These are the ones that carry the most weight:
+Las 44 decisiones están en `openspec/changes/archive/*/design.md`, cada una con su *rationale* y su alternativa descartada. Estas son las que más pesan:
 
-| | Decision | In one sentence |
+| | Decisión | En una frase |
 | --- | --- | --- |
-| D3 | Permission × scope | Two orthogonal axes: the bag of permissions says *what*; the user's single scope says *where*. No leakage through unions of scopes |
-| D6 | Integers end to end | Grams and cents as `i64`. The amount by weight is rounded once, per line, half up |
-| D11 | Audit log at the chokepoint | A single hook in the data layer audits every capability, present and future |
-| D13 | Blind close, no penalty | The cashier enters the counted amount without seeing the expected one; the admin decides. An unauthorized expense shows up as a shortfall by pure arithmetic |
-| D18 | Human-readable folio | `SROC56` reads at a glance, is unique, sequential per branch and type, and is never recycled |
-| D19 | A closed register session is a snapshot | An expense authorized on Wednesday does not rewrite Monday's close: it stays linked and explains the shortfall |
-| D21 | UTC on the node, IANA for display | Nobody stamps the time for you; the day of a report is the branch's local day |
-| D23 | Ledger + balance | Movements are the truth; the materialized balance gives O(1) reads on the hot path |
-| D26 | Absolute adjustment | "There are 48" is unambiguous; the system derives the delta. There is no delta-based adjustment |
-| D31 | Identity per label | The barcode carries weight and discriminator; the product is resolved by local lookup. Two identical weighings, two different labels |
-| D32 | Nominal expiry | Frozen at labeling time, printed as `DD/MM/YYYY`, **never blocks** a sale |
-| D34 | Headquarters without stock | Labeling does not move inventory. Stock is born on receipt |
-| D41 | Receiving what actually arrived | Whatever did not arrive is marked lost, recorded and notified |
+| D3 | Permiso × alcance | Dos ejes ortogonales: la bolsa de permisos dice *qué*; el único alcance del usuario dice *dónde*. Sin fuga por unión de alcances |
+| D6 | Enteros extremo a extremo | Gramos y centavos como `i64`. El importe por peso se redondea una vez, por línea, medio hacia arriba |
+| D11 | Bitácora en el chokepoint | Un solo hook en la capa de datos audita a todas las capacidades presentes y futuras |
+| D13 | Cierre a ciegas, sin sanción | El cajero captura lo contado sin ver el esperado; el admin decide. Un gasto no autorizado aparece como faltante por pura aritmética |
+| D18 | Folio humano | `SROC56` se lee de corrido, es único, secuencial por sucursal y tipo, y nunca se recicla |
+| D19 | El corte cerrado es una foto | Un gasto autorizado el miércoles no reescribe el corte del lunes: queda ligado y explica el faltante |
+| D21 | UTC en el nodo, IANA para mostrar | Nadie sella la hora por ti; el día de un reporte es el día local de la sucursal |
+| D23 | Ledger + saldo | Los movimientos son la verdad; el saldo materializado da lectura O(1) en la ruta caliente |
+| D26 | Ajuste absoluto | "Hay 48" es inequívoco; el sistema deriva el delta. No hay ajuste por delta |
+| D31 | Identidad por etiqueta | El barcode carga peso y discriminador; el producto se resuelve por lookup local. Dos pesadas iguales, dos etiquetas distintas |
+| D32 | Caducidad nominal | Se congela al etiquetar, se imprime `DD/MM/AAAA`, **jamás bloquea** una venta |
+| D34 | Matriz sin stock | Etiquetar no mueve inventario. El stock nace con la recepción |
+| D41 | Recepción de lo real | Lo que no llegó queda extraviado, anotado y notificado |
 
 <br/>
 
-## 🧪 Example: from the scale to the shelf
+## 🧪 Ejemplo: de la báscula al anaquel
 
 ```rust
 use domain::producto::{OrigenProducto, TipoProducto};
@@ -172,17 +172,17 @@ use storage::prelude::*;
 
 #[tokio::main]
 async fn main() -> storage::Resultado<()> {
-    // Empty system: headquarters and an administrator with every permission are born.
+    // Sistema vacío: nace la matriz y un administrador con todo.
     let alm = Almacen::abrir("sqlite://toypos.db").await?;
     let (matriz, _) = alm.bootstrap("MAT", "admin", "cambiame").await?;
     let admin = alm.autenticar("admin", "cambiame").await?;
 
-    // An outlet with its code (it will prefix its folios) and its time zone.
+    // Un expendio con su código (prefijará sus folios) y su zona.
     let sro = alm
         .crear_sucursal(&admin, TipoSucursal::Expendio, CodigoSucursal::nueva("SRO")?, "Santa Rosa", ZonaHoraria::default())
         .await?;
 
-    // A variable-weight product produced by headquarters.
+    // Un producto de peso variable producido por matriz.
     let pollo = alm
         .crear_producto(&admin, BorradorProducto {
             nombre: "tripa de pollo".into(),
@@ -190,23 +190,23 @@ async fn main() -> storage::Resultado<()> {
             origen: OrigenProducto::Matriz,
             codigo: AltaCodigo::Ninguno,
             peso_empaque: None,
-            vida_util: None, // 9 months
+            vida_util: None, // 9 meses
         })
         .await?;
 
-    // Three weighings → three labels with their own identity → one box.
+    // Tres pesadas → tres etiquetas con identidad propia → una caja.
     let etiquetas = alm
         .etiquetar_pesadas(&admin, pollo.id, matriz.id, &[Gramos::new(1250), Gramos::new(980), Gramos::new(1250)])
         .await?;
     let ids: Vec<_> = etiquetas.iter().map(|e| e.id).collect();
     let caja = alm.cerrar_caja_pesadas(&admin, &ids).await?;
 
-    // Restock: headquarters ships, the outlet receives what arrived.
+    // Surtido: la matriz manda, el expendio recibe lo que llegó.
     let envio = alm.preparar_envio(&admin, matriz.id, sro.id, &[caja.id], &[]).await?; // folio MATE1
     alm.marcar_enviado(&admin, envio.id).await?;
     alm.recibir_envio(&admin, envio.id, &[caja.id]).await?;
 
-    // This is where the system's stock is born: 3,480 g in Santa Rosa, zero at headquarters.
+    // Aquí nace el stock del sistema: 3 480 g en Santa Rosa, cero en matriz.
     println!("{}", alm.existencia(&admin, pollo.id, sro.id).await?.magnitud()); // 3480
     Ok(())
 }
@@ -214,80 +214,80 @@ async fn main() -> storage::Resultado<()> {
 
 <br/>
 
-## 🔧 Development
+## 🔧 Desarrollo
 
-Requirements: Rust **1.85** or later (2024 edition). SQLite is embedded in `sqlx`; there is nothing to install.
+Requisitos: Rust **1.85** o superior (edición 2024). SQLite va embebido en `sqlx`; no hay nada que instalar.
 
 ```bash
 git clone https://github.com/Chidaruma696/ToyPOS.git
 cd ToyPOS
-cargo test --workspace                       # 83 unit tests + 42 integration tests
+cargo test --workspace                       # 83 pruebas unitarias + 42 de integración
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all --check
 ```
 
-CI runs exactly those three steps on every push and pull request. `clippy::all` is set to `deny` at the workspace level: a warning breaks the build.
+CI corre exactamente esos tres pasos en cada push y pull request. `clippy::all` está en `deny` a nivel workspace: un warning rompe la compilación.
 
-### Methodology
+### Metodología
 
-The repository is worked on with **OpenSpec**: nothing is implemented without a proposal (`proposal.md`), a design with numbered decisions (`design.md`) and a task list (`tasks.md`). When finished, the change is archived and its specs are merged into `openspec/specs/`, which is the source of truth for what the system does.
+El repositorio se trabaja con **OpenSpec**: nada se implementa sin una propuesta (`proposal.md`), un diseño con decisiones numeradas (`design.md`) y una lista de tareas (`tasks.md`). Al terminar, el cambio se archiva y sus specs se fusionan en `openspec/specs/`, que es la fuente de verdad de lo que el sistema hace.
 
 ```
 openspec/
-├── specs/<capability>/spec.md        what is current, in Requirement / Scenario format
-└── changes/archive/<date>-<name>/    proposal · design · tasks · proposed specs
+├── specs/<capacidad>/spec.md         lo vigente, en formato Requirement / Scenario
+└── changes/archive/<fecha>-<nombre>/ proposal · design · tasks · specs propuestas
 ```
 
-The `/opsx:*` commands in `.claude/commands/` are the propose, apply and archive workflows.
+Los comandos `/opsx:*` en `.claude/commands/` son los flujos de propuesta, aplicación y archivo.
 
 <br/>
 
-## 📍 Project status
+## 📍 Estado del proyecto
 
-Done and tested (all four changes are archived with every task closed):
+Hecho y probado (los cuatro cambios están archivados con todas sus tareas cerradas):
 
-- [x] Organization, RBAC, scope, auditing, bootstrap, local login
-- [x] Global catalog, headquarters barcode, shelf life
-- [x] Prices per branch and tier, copying, freezing
-- [x] Expenses with approval, register with blind close, immutable close, folios
-- [x] Inventory per branch: ledger, balance, absolute adjustment, reversal
-- [x] Per-item labels, boxes, expiry, about-to-expire alert, notifications
-- [x] Headquarters ↔ outlet shipments with receipt of what actually arrived
+- [x] Organización, RBAC, alcance, auditoría, bootstrap, login local
+- [x] Catálogo global, barcode de matriz, vida útil
+- [x] Precios por sucursal y nivel, copia, congelado
+- [x] Gastos con aprobación, caja con cierre a ciegas, corte inmutable, folios
+- [x] Inventario por sucursal: ledger, saldo, ajuste absoluto, reversión
+- [x] Etiquetas por-ítem, cajas, caducidad, alerta por vencer, notificaciones
+- [x] Envíos matriz ↔ expendio con recepción de lo real
 
-What is missing, in the order the specs anticipate it:
+Lo que falta, en el orden en que las specs lo anticipan:
 
-- [ ] **Point of sale**: scanning, price tier by quantity, stock deduction (`Venta`), the label's `Vendida` state
-- [ ] **The three front ends** in Tauri + Vue: labeling (Kanso design already decided in D-labeling), register, admin dashboard. 100% keyboard-operable (D20)
-- [ ] **Physical printing** of labels and hardware: Torrey scale, printer, scanner
-- [ ] **Synchronization** toward Supabase: shipment transport with its catalog, conflict resolution, offline revocation window
-- [ ] Restock orders and automatic restocking, reorder point, reports and best sellers
-- [ ] Customer returns on top of the existing reversal
+- [ ] **Punto de venta**: escaneo, nivel de precio por cantidad, descuento de stock (`Venta`), estado `Vendida` de la etiqueta
+- [ ] **Las tres caras** en Tauri + Vue: etiquetado (diseño Kanso ya decidido en D-labeling), caja, panel de administración. Operables al 100 % por teclado (D20)
+- [ ] **Impresión física** de etiquetas y hardware: báscula Torrey, impresora, escáner
+- [ ] **Sincronización** hacia Supabase: transporte del envío con su catálogo, resolución de conflictos, ventana de revocación offline
+- [ ] Pedidos de reabasto y reabasto automático, punto de reorden, reportes y más vendidos
+- [ ] Devoluciones de cliente sobre la reversión existente
 
-Recorded open questions: who may **read** the audit log (today reading requires no permission; writing is indeed immutable) and how the **price tier** is chosen at the register.
-
-<br/>
-
-## 📖 Glossary
-
-- **Headquarters (matriz)** — the branch that produces, labels and governs the catalog. There is only one and it carries no stock.
-- **Outlet (expendio)** — a branch that receives and sells. It keeps its own stock, its own register and its own folios.
-- **Scope (alcance)** — the set of branches a user may operate on. It belongs to the user, not to their roles.
-- **Close (corte)** — the closing of a register session: float + cash sales − authorized expenses, against the counted amount.
-- **Folio** — the human-readable identifier of a document: `{branch code}{letter}{sequence}`, with no separators.
-- **Per-item label** — the label of one specific weighing: its `21` barcode + discriminator + grams.
-- **Lost (extraviada)** — a label or box declared in a shipment that did not arrive. It is nowhere.
+Preguntas abiertas registradas: quién puede **leer** la bitácora (hoy la lectura no exige permiso; la escritura sí es inmutable) y cómo se elige el **nivel de precio** en caja.
 
 <br/>
 
-## ⚖️ License
+## 📖 Glosario
 
-ToyPOS is distributed under the [MIT license](LICENSE). The product names that appear in the tests are examples.
+- **Matriz** — la sucursal que produce, etiqueta y gobierna el catálogo. Solo hay una y no lleva stock.
+- **Expendio** — sucursal que recibe y vende. Lleva su propia existencia, su propia caja y sus propios folios.
+- **Alcance** — el conjunto de sucursales sobre las que un usuario puede operar. Es del usuario, no de sus roles.
+- **Corte** — el cierre de una sesión de caja: fondo + ventas en efectivo − gastos autorizados, contra lo contado.
+- **Folio** — el identificador humano de un documento: `{código de sucursal}{letra}{consecutivo}`, sin separadores.
+- **Etiqueta por-ítem** — la etiqueta de una pesada concreta: su barcode `21` + discriminador + gramos.
+- **Extraviada** — etiqueta o caja declarada en un envío que no llegó. No está en ningún sitio.
+
+<br/>
+
+## ⚖️ Licencia
+
+ToyPOS se distribuye bajo la [licencia MIT](LICENSE). Los nombres de productos que aparecen en las pruebas son ejemplos.
 
 <br/>
 
 <div align="center">
 
-*Built to balance the books, not to watch people.*
+*Hecho para cuadrar, no para vigilar.*
 
 帳 · ちょう
 
