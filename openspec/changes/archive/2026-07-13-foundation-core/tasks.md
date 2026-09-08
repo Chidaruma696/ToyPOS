@@ -15,7 +15,7 @@
 - [x] 2.5 Utilidad de verificación de permisos reutilizable: `requiere(permiso, sucursal)` para permisos por-sucursal y `requiere(permiso)` para de-sistema
 - [x] 2.6 Registrar en **bitácora append-only e inmutable** toda operación mutante (C/U/D) en la capa de repositorio: actor (usuario o `sistema`), entidad, antes→después, alcance, timestamp (D11)
 - [x] 2.7 Adoptar convenciones **sync-ready** en todas las entidades: `uuid` PK, `updated_at`, borrado lógico (sin hard delete) (D12)
-- [x] 2.8 Implementar el **generador de folios** para documentos: `{código_sucursal}{tipo}{consecutivo}` todo junto, sin separadores (p. ej. `SNJC56`), secuencial por `(sucursal, tipo)`, generado local, asignado al confirmar el documento, **sin reutilización** (cancelado/revertido conserva su folio); el `uuid` (2.7) sigue siendo la identidad técnica aparte del folio (D18)
+- [x] 2.8 Implementar el **generador de folios** para documentos: `{código_sucursal}{tipo}{consecutivo}` todo junto, sin separadores (p. ej. `SROC56`), secuencial por `(sucursal, tipo)`, generado local, asignado al confirmar el documento, **sin reutilización** (cancelado/revertido conserva su folio); el `uuid` (2.7) sigue siendo la identidad técnica aparte del folio (D18)
 - [x] 2.9 **Convención de tiempo**: toda marca se guarda como **instante UTC capturado en el nodo** (el central nunca la reasigna/reescribe); helper de conversión UTC→zona IANA de la sucursal para presentación y para el "día" local de reportes; nada de offset fijo hardcodeado (D21)
 
 ## 3. Organización y acceso (`organization-access`)

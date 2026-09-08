@@ -1,6 +1,6 @@
 ## Why
 
-La fundación dejó un **catálogo global** de productos pero sin **existencias**: hoy el sistema sabe *qué* productos hay, no *cuántos* hay en cada sucursal. Sin inventario por sucursal no se puede recibir mercancía, ni impedir vender lo que no hay, ni alimentar el reabasto automático; y el motivo original de la auditoría —"un empleado desajustaba el inventario y no había forma de probar quién fue" (D11)— sigue sin su objeto. Esta capa introduce la existencia por sucursal como un **ledger de movimientos** atribuible y reversible, sobre el que se apoyarán recepción, POS, reabasto y reportes.
+La fundación dejó un **catálogo global** de productos pero sin **existencias**: hoy el sistema sabe *qué* productos hay, no *cuántos* hay en cada sucursal. Sin inventario por sucursal no se puede recibir mercancía, ni impedir vender lo que no hay, ni alimentar el reabasto automático; y el motivo original de la auditoría —"alguien desajusta el inventario y no hay forma de probar quién fue" (D11)— sigue sin su objeto. Esta capa introduce la existencia por sucursal como un **ledger de movimientos** atribuible y reversible, sobre el que se apoyarán recepción, POS, reabasto y reportes.
 
 ## What Changes
 

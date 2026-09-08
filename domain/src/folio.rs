@@ -1,5 +1,5 @@
 //! Folio de documentos: identificador humano `{código_sucursal}{tipo}{consecutivo}`
-//! todo junto, sin separadores (p. ej. `SNJC56`), aparte del `uuid` técnico (D18).
+//! todo junto, sin separadores (p. ej. `SROC56`), aparte del `uuid` técnico (D18).
 //!
 //! El consecutivo es secuencial por `(sucursal, tipo)` y **sin reutilización**:
 //! un documento cancelado o revertido conserva su folio. La *secuencia* (el
@@ -70,22 +70,22 @@ mod tests {
 
     #[test]
     fn compone_folio_sin_separadores() {
-        let cod = CodigoSucursal::nueva("SNJ").unwrap();
+        let cod = CodigoSucursal::nueva("SRO").unwrap();
         assert_eq!(
             Folio::componer(&cod, TipoDocumento::Corte, 56).get(),
-            "SNJC56"
+            "SROC56"
         );
         assert_eq!(
             Folio::componer(&cod, TipoDocumento::Gasto, 204).get(),
-            "SNJG204"
+            "SROG204"
         );
         assert_eq!(
             Folio::componer(&cod, TipoDocumento::Nota, 13280).get(),
-            "SNJN13280"
+            "SRON13280"
         );
         assert_eq!(
             Folio::componer(&cod, TipoDocumento::Envio, 1).get(),
-            "SNJE1"
+            "SROE1"
         );
     }
 }

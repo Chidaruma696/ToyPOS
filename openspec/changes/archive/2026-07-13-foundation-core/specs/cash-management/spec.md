@@ -71,7 +71,7 @@ Un corte, una vez cerrado, SHALL ser **inmutable**: su efectivo esperado, contad
 - **THEN** el corte del lunes conserva su esperado, contado y faltante originales, y la autorización queda ligada al gasto con fecha del miércoles
 
 #### Scenario: El faltante histórico queda explicado, no borrado
-- **WHEN** el administrador revisa el corte del lunes después de autorizar el gasto tardío `SNJG204`
+- **WHEN** el administrador revisa el corte del lunes después de autorizar el gasto tardío `SROG204`
 - **THEN** ve el faltante original de 300 justificado por el gasto autorizado, sin que las cifras del corte hayan cambiado
 
 #### Scenario: El gasto no salta al corte del día de su resolución
@@ -86,16 +86,16 @@ El sistema SHALL guardar y mostrar los importes **exactos en centavos**, sin red
 - **THEN** el sistema registra y muestra 12.40, y el cajero cobra en físico el peso que corresponda
 
 ### Requirement: Folio de los documentos de caja
-Cada documento generado en caja (corte de una sesión, gasto) SHALL recibir un **folio** legible con formato `{código_sucursal}{tipo}{consecutivo}` todo junto, sin separadores (p. ej. `SNJC56` para el corte, `SNJG204` para el gasto), distinto del identificador técnico interno. El folio SHALL ser **único** y **secuencial por sucursal y por tipo** (los cortes de una sucursal se numeran aparte de sus gastos y aparte de los de otra sucursal), SHALL asignarse **al confirmarse** el documento y SHALL NO reutilizarse: un documento cancelado o revertido conserva su folio y su número no se recicla (ver D18).
+Cada documento generado en caja (corte de una sesión, gasto) SHALL recibir un **folio** legible con formato `{código_sucursal}{tipo}{consecutivo}` todo junto, sin separadores (p. ej. `SROC56` para el corte, `SROG204` para el gasto), distinto del identificador técnico interno. El folio SHALL ser **único** y **secuencial por sucursal y por tipo** (los cortes de una sucursal se numeran aparte de sus gastos y aparte de los de otra sucursal), SHALL asignarse **al confirmarse** el documento y SHALL NO reutilizarse: un documento cancelado o revertido conserva su folio y su número no se recicla (ver D18).
 
 #### Scenario: El corte recibe folio secuencial por sucursal
-- **WHEN** se cierra el corte número 56 en la sucursal San Juan (código `SNJ`)
-- **THEN** el corte queda con folio `SNJC56`, independiente de la numeración de cortes de otras sucursales
+- **WHEN** se cierra el corte número 56 en la sucursal Santa Rosa (código `SRO`)
+- **THEN** el corte queda con folio `SROC56`, independiente de la numeración de cortes de otras sucursales
 
 #### Scenario: Numeración independiente entre sucursales
-- **WHEN** San Juan va en su corte `SNJC56` y Toluca en su corte `TOLC19`
+- **WHEN** Santa Rosa va en su corte `SROC56` y Valle en su corte `VALC19`
 - **THEN** cada sucursal mantiene su propia secuencia, sin relación entre ambas
 
 #### Scenario: Un gasto cancelado conserva su folio
-- **WHEN** un gasto con folio `SNJG204` se cancela
-- **THEN** conserva el folio `SNJG204` y ese número no se reutiliza para otro gasto
+- **WHEN** un gasto con folio `SROG204` se cancela
+- **THEN** conserva el folio `SROG204` y ese número no se reutiliza para otro gasto

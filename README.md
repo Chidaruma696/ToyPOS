@@ -21,21 +21,21 @@
 ---
 
 > [!NOTE]
-> ToyPOS está en fase de **núcleo**: el modelo de dominio y la capa de datos existen, están probados y pasan CI con `clippy -D warnings`. Todavía **no hay interfaz** (ni pantalla de etiquetado, ni caja, ni panel), ni venta, ni sincronización. Lee el [estado del proyecto](#-estado-del-proyecto) antes de hacerte ilusiones.
+> **Proyecto descartado y publicado por si le sirve a alguien.** No hay un negocio detrás ni datos reales: las sucursales, productos y cifras de las specs y pruebas son ejemplos. Se quedó en fase de **núcleo**: el modelo de dominio y la capa de datos existen, están probados y pasan CI con `clippy -D warnings`. Todavía **no hay interfaz** (ni pantalla de etiquetado, ni caja, ni panel), ni venta, ni sincronización. Lee el [estado del proyecto](#-estado-del-proyecto) antes de hacerte ilusiones.
 
 <br/>
 
 ## 🏪 Qué es
 
-ToyPOS es el sistema de una empresa que **produce, empaca y vende alimento por peso y por pieza** desde una **matriz** hacia varios **expendios** afiliados. La matriz etiqueta lo que produce (báscula Torrey, producto congelado y al vacío), lo mete en cajas y lo manda; el expendio lo recibe, lo vende y cuadra su caja cada día.
+ToyPOS está pensado para una empresa que **produce, empaca y vende alimento por peso y por pieza** desde una **matriz** hacia varios **expendios** afiliados. La matriz etiqueta lo que produce (báscula Torrey, producto congelado y al vacío), lo mete en cajas y lo manda; el expendio lo recibe, lo vende y cuadra su caja cada día.
 
-El sistema anterior tenía tres heridas que ToyPOS cierra **por diseño**, no por disciplina:
+Tres heridas típicas de los sistemas de este tipo, que ToyPOS cierra **por diseño**, no por disciplina:
 
 | 🩹 Herida | 🛠️ Cómo la cierra ToyPOS |
 | --- | --- |
-| Un empleado desajustaba el inventario y nadie podía probar quién fue | **Bitácora append-only e inmutable** en el único punto de acceso a datos, con disparadores SQL que impiden editarla o borrarla. Toda escritura tiene actor, humano o `sistema` |
-| El servidor sellaba la hora en otro huso: el log decía 14:56 cuando eran las 10:00 | Todo instante se captura **en UTC en el nodo** y se presenta en la **zona IANA de cada sucursal**. El "día" de un corte es el día local de su sucursal |
-| Los gramos se redondeaban a dos decimales y el cuadre físico nunca coincidía | **Enteros de punta a punta**: gramos para peso, centavos para dinero, jamás un `float`. El mismo entero viaja de la báscula al arqueo |
+| Alguien desajusta el inventario y nadie puede probar quién fue | **Bitácora append-only e inmutable** en el único punto de acceso a datos, con disparadores SQL que impiden editarla o borrarla. Toda escritura tiene actor, humano o `sistema` |
+| Un servidor en otro huso sella la hora: el log dice 14:56 cuando eran las 10:00 | Todo instante se captura **en UTC en el nodo** y se presenta en la **zona IANA de cada sucursal**. El "día" de un corte es el día local de su sucursal |
+| Los gramos se redondean a dos decimales y el cuadre físico nunca coincide | **Enteros de punta a punta**: gramos para peso, centavos para dinero, jamás un `float`. El mismo entero viaja de la báscula al arqueo |
 
 <br/>
 
@@ -104,7 +104,7 @@ ToyPOS
 │   ├── acceso      Permiso (qué) × Alcance (dónde) → ContextoAcceso
 │   ├── unidades    Centavos y Gramos: enteros, nunca float
 │   ├── tiempo      Instante UTC del nodo, ZonaHoraria IANA, "el día" local
-│   ├── folio       {código}{tipo}{consecutivo}: SNJC56, SNJG204, MATE1
+│   ├── folio       {código}{tipo}{consecutivo}: SROC56, SROG204, MATE1
 │   ├── producto · barcode · precio · inventario
 │   ├── caja · gasto · aprobacion
 │   └── etiqueta · notificacion · envio
@@ -147,7 +147,7 @@ Las 44 decisiones están en `openspec/changes/archive/*/design.md`, cada una con
 | D6 | Enteros extremo a extremo | Gramos y centavos como `i64`. El importe por peso se redondea una vez, por línea, medio hacia arriba |
 | D11 | Bitácora en el chokepoint | Un solo hook en la capa de datos audita a todas las capacidades presentes y futuras |
 | D13 | Cierre a ciegas, sin sanción | El cajero captura lo contado sin ver el esperado; el admin decide. Un gasto no autorizado aparece como faltante por pura aritmética |
-| D18 | Folio humano | `SNJC56` se lee de corrido, es único, secuencial por sucursal y tipo, y nunca se recicla |
+| D18 | Folio humano | `SROC56` se lee de corrido, es único, secuencial por sucursal y tipo, y nunca se recicla |
 | D19 | El corte cerrado es una foto | Un gasto autorizado el miércoles no reescribe el corte del lunes: queda ligado y explica el faltante |
 | D21 | UTC en el nodo, IANA para mostrar | Nadie sella la hora por ti; el día de un reporte es el día local de la sucursal |
 | D23 | Ledger + saldo | Los movimientos son la verdad; el saldo materializado da lectura O(1) en la ruta caliente |
@@ -177,7 +177,7 @@ async fn main() -> storage::Resultado<()> {
 
     // Un expendio con su código (prefijará sus folios) y su zona.
     let snj = alm
-        .crear_sucursal(&admin, TipoSucursal::Expendio, CodigoSucursal::nueva("SNJ")?, "San Juan", ZonaHoraria::default())
+        .crear_sucursal(&admin, TipoSucursal::Expendio, CodigoSucursal::nueva("SRO")?, "Santa Rosa", ZonaHoraria::default())
         .await?;
 
     // Un producto de peso variable producido por matriz.
@@ -204,7 +204,7 @@ async fn main() -> storage::Resultado<()> {
     alm.marcar_enviado(&admin, envio.id).await?;
     alm.recibir_envio(&admin, envio.id, &[caja.id]).await?;
 
-    // Aquí nace el stock del sistema: 3 480 g en San Juan, cero en matriz.
+    // Aquí nace el stock del sistema: 3 480 g en Santa Rosa, cero en matriz.
     println!("{}", alm.existencia(&admin, pollo.id, snj.id).await?.magnitud()); // 3480
     Ok(())
 }

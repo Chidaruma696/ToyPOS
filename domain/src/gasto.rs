@@ -79,7 +79,7 @@ mod tests {
 
     fn folio() -> Folio {
         Folio::componer(
-            &CodigoSucursal::nueva("SNJ").unwrap(),
+            &CodigoSucursal::nueva("SRO").unwrap(),
             TipoDocumento::Gasto,
             204,
         )
@@ -118,7 +118,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(g.monto, Centavos::de_pesos(2000, 0));
-        assert_eq!(g.folio.get(), "SNJG204");
+        assert_eq!(g.folio.get(), "SROG204");
     }
 
     #[test]

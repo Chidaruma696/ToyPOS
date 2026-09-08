@@ -81,7 +81,7 @@ mod tests {
 
     #[test]
     fn codigo_normaliza_a_mayusculas() {
-        assert_eq!(CodigoSucursal::nueva("snj").unwrap().get(), "SNJ");
+        assert_eq!(CodigoSucursal::nueva("snj").unwrap().get(), "SRO");
     }
 
     #[test]
@@ -93,10 +93,10 @@ mod tests {
 
     #[test]
     fn codigos_distintos_para_nombres_parecidos() {
-        // San Juan y San Joaquín reciben códigos explícitos que no colisionan.
+        // Santa Rosa y Santa Rita reciben códigos explícitos que no colisionan.
         assert_ne!(
-            CodigoSucursal::nueva("SNJ").unwrap(),
-            CodigoSucursal::nueva("SNQ").unwrap()
+            CodigoSucursal::nueva("SRO").unwrap(),
+            CodigoSucursal::nueva("SRI").unwrap()
         );
     }
 }

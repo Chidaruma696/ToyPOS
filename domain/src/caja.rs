@@ -165,7 +165,7 @@ mod tests {
 
     fn folio_corte() -> Folio {
         Folio::componer(
-            &CodigoSucursal::nueva("SNJ").unwrap(),
+            &CodigoSucursal::nueva("SRO").unwrap(),
             TipoDocumento::Corte,
             56,
         )

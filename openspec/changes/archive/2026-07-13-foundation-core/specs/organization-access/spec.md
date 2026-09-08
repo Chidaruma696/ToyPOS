@@ -4,15 +4,15 @@
 El sistema SHALL permitir registrar sucursales, cada una con un tipo `matriz` o `expendio`, un **código** corto alfanumérico y una **zona horaria** (identificador IANA, p. ej. `America/Mexico_City`, valor por defecto). SHALL existir a lo sumo una sucursal de tipo `matriz`. El **código** SHALL ser **único** entre todas las sucursales e **inmutable** tras el alta, SHALL asignarlo quien crea la sucursal (no se deriva del nombre) y SHALL prefijar los folios de los documentos de esa sucursal (ver capacidad `cash-management` y D18). La **zona horaria** define la hora local de la sucursal para presentación y para el "día" de sus reportes/cortes (ver requisito de marca de tiempo y D21). Renombrar una sucursal SHALL NO cambiar su código ni los folios históricos.
 
 #### Scenario: Alta de un expendio
-- **WHEN** un usuario con permiso `gestionar_sucursales` registra una sucursal de tipo `expendio` con código `SNJ`
-- **THEN** la sucursal queda registrada con código `SNJ` y disponible como alcance asignable a roles
+- **WHEN** un usuario con permiso `gestionar_sucursales` registra una sucursal de tipo `expendio` con código `SRO`
+- **THEN** la sucursal queda registrada con código `SRO` y disponible como alcance asignable a roles
 
 #### Scenario: Unicidad de la matriz
 - **WHEN** se intenta registrar una segunda sucursal de tipo `matriz`
 - **THEN** el sistema rechaza la operación
 
 #### Scenario: Códigos distintos para nombres parecidos
-- **WHEN** se registran San Juan con código `SNJ` y San Joaquín con código `SNQ`
+- **WHEN** se registran Santa Rosa con código `SRO` y Santa Rita con código `SRI`
 - **THEN** ambas quedan con códigos únicos y sus folios nunca colisionan
 
 #### Scenario: Código duplicado rechazado
@@ -20,8 +20,8 @@ El sistema SHALL permitir registrar sucursales, cada una con un tipo `matriz` o 
 - **THEN** el sistema rechaza la operación
 
 #### Scenario: Renombrar no altera el código
-- **WHEN** se cambia el nombre de una sucursal con código `TOL`
-- **THEN** el código sigue siendo `TOL` y los folios ya emitidos no se alteran
+- **WHEN** se cambia el nombre de una sucursal con código `VAL`
+- **THEN** el código sigue siendo `VAL` y los folios ya emitidos no se alteran
 
 #### Scenario: Zona horaria por defecto
 - **WHEN** se registra una sucursal sin especificar zona horaria
